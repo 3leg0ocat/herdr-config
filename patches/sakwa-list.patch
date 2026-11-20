@@ -43,15 +43,6 @@ index 0000000..fa9ee37
 +<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 +<path d="M5 12h14"/><path d="M12 5v14"/>
 +</svg>
-diff --git a/mods/sakwa/icons/x.svg b/mods/sakwa/icons/x.svg
-new file mode 100644
-index 0000000..bd4c19b
---- /dev/null
-+++ b/mods/sakwa/icons/x.svg
-@@ -0,0 +1,3 @@
-+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-+<path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-+</svg>
 diff --git a/mods/sakwa/journal.js b/mods/sakwa/journal.js
 index 2bbd1de..0dbb752 100644
 --- a/mods/sakwa/journal.js
@@ -96,7 +87,7 @@ index 2bbd1de..0dbb752 100644
      },
      async append(context,text,parents) { return journal.put(journal.revision(context,text,parents)); },
 diff --git a/mods/sakwa/main.js b/mods/sakwa/main.js
-index 775bf93..7871c93 100644
+index 775bf93..f9ab815 100644
 --- a/mods/sakwa/main.js
 +++ b/mods/sakwa/main.js
 @@ -1,5 +1,5 @@
@@ -152,7 +143,7 @@ index 775bf93..7871c93 100644
      });
      try { this.book=createDraftBook(this.journal,localStorage,records=>this.recovery.save(records)); }
      catch(e) { this.fatal=e.message;this.notice(e.message,'error',true); }
-@@ -54,6 +67,94 @@ export default class Sakwa extends View {
+@@ -54,6 +67,103 @@ export default class Sakwa extends View {
      });
    }
  
@@ -192,6 +183,14 @@ index 775bf93..7871c93 100644
 +    try{localStorage.setItem('sakwa.mode.v1',mode);}catch{/* View preference only. */}
 +    cx.notify();
 +  }
++  sendItem(item,cx) {
++    // Local: send one list item, with the same recipient rules as the whole note.
++    const candidates=recipients(this.current,agents(),terminals());
++    if(item.done||!candidates.length||this.busy)return; // checked items are done: not sent again
++    this.sendText=item.text;
++    if(candidates.length===1)this.send(candidates[0].address,cx);
++    else {this.panel='recipients';cx.notify();}
++  }
 +  scopeLabels() {
 +    // Local: each scope button names its own context (tab name, space name), not the selected one.
 +    const focus=focused(),space=spaces().find(s=>s.id===focus?.space),tab=space?.tabs.find(x=>x.id===focus?.tab);
@@ -207,14 +206,18 @@ index 775bf93..7871c93 100644
 +    // Only text that may not fit gets a preview card; it wraps instead of one long line.
 +    const room=Math.max(80,(this.width||240)-80);
 +    if(textWidth(item.text)<=room)return label;
-+    return HoverCard.new(`item-card-${item.i}`).flex_1().min_w(0).anchor('top_left').open_delay(400)
++    // The card's own element sizes to its trigger; the outer box bounds it so the label truncates
++    // and the hover icons stay inside the row.
++    return div().flex_1().min_w(0).overflow_hidden().child(HoverCard.new(`item-card-${item.i}`).w_full().min_w(0)
++      .anchor('top_left').open_delay(400)
 +      .trigger(label)
 +      .content(v_flex().w(Math.max(220,Math.min(320,(this.width||240)+40))).px(12).py(9).rounded(8)
 +        .border_1().border_color(t.border).bg(t.popover).shadow_md()
-+        .text_size(13).text_color(item.done?t.muted:t.foreground).whitespace_normal().child(item.text));
++        .text_size(13).text_color(item.done?t.muted:t.foreground).whitespace_normal().child(item.text)));
 +  }
 +  itemList(ready) {
 +    const t=theme(),items=ready?parseItems(this.editor.value()):[];
++    const candidates=ready?recipients(this.current,agents(),terminals()):[];
 +    const rows=items.map(item=>h_flex().id(`item-${item.i}`).px(8).h(30).flex_none().rounded(8).items_center().gap(9)
 +      .when(this.editIndex===item.i,e=>e.bg(t.selected))
 +      .hover(e=>e.bg(t.hover))
@@ -225,12 +228,9 @@ index 775bf93..7871c93 100644
 +        .on_click((_e,cx)=>{cx.stop_propagation();this.setLine(item.i,`- [${item.done?' ':'x'}] ${item.text}`,cx);})
 +        .when(item.done,e=>e.child(svg('mods/sakwa/icons/check.svg').size(11))))
 +      .child(this.itemText(item,t))
-+      .when(this.hoverItem===item.i,e=>e.child(div().id(`item-del-${item.i}`).flex_none().cursor_pointer()
-+        .text_color(t.dim).hover(s=>s.text_color(t.foreground)).tooltip('Delete')
-+        .on_click((_e,cx)=>{cx.stop_propagation();this.hoverItem=null;
-+          if(this.editIndex===item.i){this.editIndex=null;this.itemInput.set_value('');}
-+          this.setLine(item.i,null,cx);})
-+        .child(svg('mods/sakwa/icons/x.svg').size(14)))));
++      .when(this.hoverItem===item.i&&!item.done,e=>e.child(this.headerIcon(`item-send-${item.i}`,'send',
++        candidates.length?'Send this item':'No live agents in this note context',
++        (_e,cx)=>{cx.stop_propagation();this.sendItem(item,cx);},!candidates.length||this.busy))));
 +    const editing=this.editIndex!==null;
 +    const add=h_flex().id('item-add').mx(8).mt(4).pl(10).pr(4).h(30).flex_none().rounded(7).items_center().gap(6)
 +      .border_1().border_color(editing?t.input:t.border).bg(t.chrome)
@@ -247,7 +247,7 @@ index 775bf93..7871c93 100644
    desired() { return this.pinned || contextFor(this.scope,focused(),spaces()); }
    note(key) { return this.journal.notes().find(n=>n.key===key); }
    setText(value) {
-@@ -71,6 +172,7 @@ export default class Sakwa extends View {
+@@ -71,6 +181,7 @@ export default class Sakwa extends View {
      const next=this.desired();
      if(!next){this.current=null;this.setText('');return;}
      const key=contextKey(next),changed=!this.current || contextKey(this.current)!==key;
@@ -255,7 +255,24 @@ index 775bf93..7871c93 100644
      const note=this.note(key),draft=this.book?.get(key);
      const ids=draft?[draft.id]:(note?.heads.map(h=>h.id)||[]);
      const signature=JSON.stringify(ids.slice().sort());
-@@ -249,28 +351,42 @@ export default class Sakwa extends View {
+@@ -190,7 +301,7 @@ export default class Sakwa extends View {
+   }
+   send(address,cx) {
+     if(this.busy || !this.current)return;
+-    const context={...this.current},value=this.editor.value();
++    const context={...this.current},value=this.sendText??this.editor.value();this.sendText=null;
+     this.busy=true;this.panel=null;this.message=null;
+     this.work(cx,async()=>{
+       try {
+@@ -203,6 +314,7 @@ export default class Sakwa extends View {
+     });
+   }
+   sendClick(cx) {
++    this.sendText=null;
+     const candidates=recipients(this.current,agents(),terminals());
+     if(candidates.length===1)this.send(candidates[0].address,cx);
+     else {this.panel='recipients';cx.notify();}
+@@ -249,28 +361,43 @@ export default class Sakwa extends View {
      const labels=(this.width||0)>=460;
      const frame=v_flex().id('sakwa-root').size_full().min_h(0).min_w(0)
        .on_size_change((size,cx)=>{if(this.width!==size.width){this.width=size.width;cx.notify();}})
@@ -282,7 +299,8 @@ index 775bf93..7871c93 100644
 +    const root=v_flex().flex_1().min_h(0).min_w(0).p(10).when(this.bare,e=>e.px(8).pt(2).pb(8)).gap(8);
      if(this.panel==='all'){root.child(this.archive(cx));return frame.child(root);}
 +    if(this.bare&&this.panel==='recipients'){root.child(v_flex().px(8).gap(6)
-+      .child(row().child(text('Send to').font_semibold().flex_1()).child(button('back','Back',(_e,cx)=>{this.panel=null;cx.notify();})))
++      .child(row().child(text(this.sendText!=null?'Send item to':'Send note to').font_semibold().flex_1()).child(button('back','Back',(_e,cx)=>{this.panel=null;this.sendText=null;cx.notify();})))
++      .when(this.sendText!=null,e=>e.child(text(this.sendText,true).truncate()))
 +      .children(candidates.map(a=>button(`send-${a.address}`,`${a.name} · ${a.address}`,(_e,cx)=>this.send(a.address,cx),{disabled:this.busy}))));
 +      return frame.child(root);}
      root
@@ -292,10 +310,11 @@ index 775bf93..7871c93 100644
 -          this.current?`${this.pinned?'Pinned · ':''}${this.current.label}`:null)))
 -        .child(button('all-notes','All notes',(_e,cx)=>{this.panel='all';cx.notify();},{icon:'archive',iconOnly:!labels}))
 -        .child(popover('send','Send to agent',this.panel==='recipients',(open,cx)=>{
+-          if(open)this.sendClick(cx);else if(this.panel==='recipients'){this.panel=null;cx.notify();}
 +          this.current?`${this.pinned?'Pinned · ':''}${this.current.label}`:null,this.scopeLabels())))
 +        .when(!this.bare,e=>e.child(button('all-notes','All notes',(_e,cx)=>{this.panel='all';cx.notify();},{icon:'archive',iconOnly:!labels})))
 +        .when(!this.bare,e=>e.child(popover('send','Send to agent',this.panel==='recipients',(open,cx)=>{
-           if(open)this.sendClick(cx);else if(this.panel==='recipients'){this.panel=null;cx.notify();}
++          if(open)this.sendClick(cx);else if(this.panel==='recipients'){this.panel=null;this.sendText=null;cx.notify();}
          },()=>v_flex().gap(4).when(!candidates.length,e=>e.child(text('No live agents in this note context.',true)))
            .children(candidates.map(a=>button(`send-${a.address}`,`${a.name} · ${a.address}`,(_e,cx)=>this.send(a.address,cx),{disabled:this.busy}))),
 -        {disabled:!ready||this.busy||!this.editor.value().trim(),icon:'send',iconOnly:!labels,tooltip:candidates.length?'Send the full note to an agent':'No live agents in this note context'})))
