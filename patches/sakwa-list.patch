@@ -25,15 +25,6 @@ index 0000000..9d69cac
 +<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 +<path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/>
 +</svg>
-diff --git a/mods/sakwa/icons/pencil.svg b/mods/sakwa/icons/pencil.svg
-new file mode 100644
-index 0000000..ad9c3bb
---- /dev/null
-+++ b/mods/sakwa/icons/pencil.svg
-@@ -0,0 +1,3 @@
-+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-+<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>
-+</svg>
 diff --git a/mods/sakwa/icons/plus.svg b/mods/sakwa/icons/plus.svg
 new file mode 100644
 index 0000000..fa9ee37
@@ -87,7 +78,7 @@ index 2bbd1de..0dbb752 100644
      },
      async append(context,text,parents) { return journal.put(journal.revision(context,text,parents)); },
 diff --git a/mods/sakwa/main.js b/mods/sakwa/main.js
-index 775bf93..f9ab815 100644
+index 775bf93..e39db52 100644
 --- a/mods/sakwa/main.js
 +++ b/mods/sakwa/main.js
 @@ -1,5 +1,5 @@
@@ -98,7 +89,7 @@ index 775bf93..f9ab815 100644
  import { spaces, machines, agents, terminals, focused, panes, theme, props, layout, run,
    hc, shared, setShared, nextCommand, notify } from 'herdr';
  import { contextFor, contextKey, contextStatus, validContext, recipients } from './context.js';
-@@ -11,12 +11,29 @@ import { openNote, sendNote } from './presentation.js';
+@@ -11,12 +11,33 @@ import { openNote, sendNote } from './presentation.js';
  import { returnNoteToSidebar } from './navigation.js';
  import { text, button, popover, row, contextGroup } from './ui.js';
  
@@ -122,13 +113,17 @@ index 775bf93..f9ab815 100644
      this.framed=initial?.role==='sidebar'||initial?.role!=='pane'&&!initial?.pane&&!initial?.overlay;
 +    this.bare=Boolean(initial?.bare); // local: flat, as a block in the sidebar
 +    try{this.mode=localStorage.getItem('sakwa.mode.v1')||'list';}catch{this.mode='list';}
-+    this.editIndex=null;this.hoverItem=null;
++    this.editId=null;this.hoverItem=null;
++    this.lineIds=[];this.idsText=null;this.nextLineId=1;
 +    this.itemInput=InputState.new({placeholder:'New item…'});
 +    this.itemInput.on('submit',(_e,cx)=>this.submitItem(cx));
++    this.editInput=InputState.new({});
++    this.editInput.on('submit',(_e,cx)=>this.finishEdit(cx));
++    this.editInput.on('blur',(_e,cx)=>this.finishEdit(cx));
      this.scope='tab';this.pinned=validContext(initial?.context)?initial.context:null;
      this.current=null;this.baseIds=[];this.loaded=false;this.busy=false;this.panel=null;
      this.journal=createJournal(fileAdapter());
-@@ -30,12 +47,8 @@ export default class Sakwa extends View {
+@@ -30,12 +51,8 @@ export default class Sakwa extends View {
      this.editor.on('focus',()=>{this.editing=true;});
      this.editor.on('blur',()=>{this.editing=false;});
      this.editor.on('change',(_e,cx)=>{
@@ -143,7 +138,7 @@ index 775bf93..f9ab815 100644
      });
      try { this.book=createDraftBook(this.journal,localStorage,records=>this.recovery.save(records)); }
      catch(e) { this.fatal=e.message;this.notice(e.message,'error',true); }
-@@ -54,6 +67,103 @@ export default class Sakwa extends View {
+@@ -54,6 +71,140 @@ export default class Sakwa extends View {
      });
    }
  
@@ -156,20 +151,56 @@ index 775bf93..f9ab815 100644
 +    this.baseIds=[record.id];this.displayedText=value;
 +    this.save(cx);cx.notify();
 +  }
-+  setLine(i,line,cx) {
-+    const lines=this.editor.value().split('\n');
-+    if(line===null)lines.splice(i,1);else lines[i]=line;
-+    this.commit(lines.join('\n'),cx);
++  // Each line of the note gets an in-memory id while it is shown as a list. Edits made here keep
++  // the ids in step (a deleted line takes its id with it), so a click always reaches the item it
++  // was drawn for. A change from elsewhere (text view, another window) gives every line a new id,
++  // and a click drawn before it finds nothing and does nothing.
++  ensureIds(value) {
++    if(value!==this.idsText){this.lineIds=value.split('\n').map(()=>this.nextLineId++);this.idsText=value;}
++  }
++  listItems() {
++    const value=this.editor.value();this.ensureIds(value);
++    return parseItems(value).map(x=>({...x,id:this.lineIds[x.i]}));
++  }
++  lineOf(id) { this.ensureIds(this.editor.value());return this.lineIds.indexOf(id); }
++  setLine(id,line,cx) {
++    const i=this.lineOf(id);if(i<0)return;
++    const lines=this.editor.value().split('\n'),ids=this.lineIds.slice();
++    if(line===null){lines.splice(i,1);ids.splice(i,1);}else lines[i]=line;
++    const next=lines.join('\n');this.commit(next,cx);
++    if(this.editor.value()===next){this.lineIds=ids;this.idsText=next;}
 +  }
 +  submitItem(cx) {
 +    const v=this.itemInput.value().trim();
-+    if(this.editIndex!==null){if(v)this.setLine(this.editIndex,`- [${this.editDone?'x':' '}] ${v}`,cx);}
-+    else if(v){const base=this.editor.value().replace(/\s+$/,'');this.commit(`${base?base+'\n':''}- [ ] ${v}`,cx);}
-+    this.editIndex=null;this.itemInput.set_value('');this.itemInput.focus();cx.notify();
++    if(v){
++      const value=this.editor.value();this.ensureIds(value);
++      const base=value.replace(/\s+$/,''),next=`${base?base+'\n':''}- [ ] ${v}`;
++      const ids=[...(base?this.lineIds.slice(0,base.split('\n').length):[]),this.nextLineId++];
++      this.commit(next,cx);
++      if(this.editor.value()===next){this.lineIds=ids;this.idsText=next;}
++    }
++    this.itemInput.set_value('');this.itemInput.focus();cx.notify();
 +  }
 +  editItem(item,cx) {
-+    this.editIndex=item.i;this.editDone=item.done;
-+    this.itemInput.set_value(item.text);this.itemInput.focus();cx.notify();
++    // Double-click: edit the item in its own row. Enter, leaving the field or pressing anywhere
++    // outside the row saves; saving it empty deletes the item.
++    if(this.editId!==null)this.finishEdit(cx);
++    const current=this.listItems().find(x=>x.id===item.id);if(!current){cx.notify();return;}
++    this.editId=current.id;this.editDone=current.done;
++    this.editInput.set_value(current.text);cx.notify();
++    // The field exists only after the next render; focus it then.
++    if(cx.timer?.after)cx.timer.after(30,()=>{if(this.editId===current.id)this.editInput.focus();});
++    else this.editInput.focus();
++  }
++  toggleItem(item,cx) {
++    const current=this.listItems().find(x=>x.id===item.id);if(!current)return;
++    this.setLine(current.id,`- [${current.done?' ':'x'}] ${current.text}`,cx);
++  }
++  finishEdit(cx) {
++    if(this.editId===null)return;
++    const id=this.editId,v=this.editInput.value().trim();this.editId=null;
++    this.setLine(id,v?`- [${this.editDone?'x':' '}] ${v}`:null,cx);
++    cx.notify();
 +  }
 +  headerIcon(id,icon,tooltip,action,disabled=false) {
 +    const t=theme();
@@ -179,7 +210,7 @@ index 775bf93..f9ab815 100644
 +      .child(svg(`mods/sakwa/icons/${icon}.svg`).size(14));
 +  }
 +  setMode(mode,cx) {
-+    this.mode=mode;this.editIndex=null;
++    this.mode=mode;this.editId=null;
 +    try{localStorage.setItem('sakwa.mode.v1',mode);}catch{/* View preference only. */}
 +    cx.notify();
 +  }
@@ -199,16 +230,17 @@ index 775bf93..f9ab815 100644
 +    return labels;
 +  }
 +  itemText(item,t) {
++    if(this.editId===item.id)return Input.new(this.editInput).flex_1().min_w(0).h(26).text_size(13).text_color(t.foreground);
++    const edit=(e,cx)=>{if(e.click_count===2)this.editItem(item,cx);};
 +    const label=div().id(`item-text-${item.i}`).flex_1().w_full().min_w(0).truncate().text_size(13)
 +      .text_color(item.done?t.dim:t.foreground).when(item.done,e=>e.line_through())
-+      .on_mouse_down('left',(e,cx)=>{if(e.click_count===2)this.editItem(item,cx);})
 +      .child(item.text||' ');
 +    // Only text that may not fit gets a preview card; it wraps instead of one long line.
 +    const room=Math.max(80,(this.width||240)-80);
-+    if(textWidth(item.text)<=room)return label;
++    if(textWidth(item.text)<=room)return label.on_mouse_down('left',edit);
 +    // The card's own element sizes to its trigger; the outer box bounds it so the label truncates
 +    // and the hover icons stay inside the row.
-+    return div().flex_1().min_w(0).overflow_hidden().child(HoverCard.new(`item-card-${item.i}`).w_full().min_w(0)
++    return div().id(`item-box-${item.i}`).flex_1().min_w(0).overflow_hidden().on_mouse_down('left',edit).child(HoverCard.new(`item-card-${item.i}`).w_full().min_w(0)
 +      .anchor('top_left').open_delay(400)
 +      .trigger(label)
 +      .content(v_flex().w(Math.max(220,Math.min(320,(this.width||240)+40))).px(12).py(9).rounded(8)
@@ -216,30 +248,30 @@ index 775bf93..f9ab815 100644
 +        .text_size(13).text_color(item.done?t.muted:t.foreground).whitespace_normal().child(item.text)));
 +  }
 +  itemList(ready) {
-+    const t=theme(),items=ready?parseItems(this.editor.value()):[];
++    const t=theme(),items=ready?this.listItems():[];
 +    const candidates=ready?recipients(this.current,agents(),terminals()):[];
 +    const rows=items.map(item=>h_flex().id(`item-${item.i}`).px(8).h(30).flex_none().rounded(8).items_center().gap(9)
-+      .when(this.editIndex===item.i,e=>e.bg(t.selected))
-+      .hover(e=>e.bg(t.hover))
++      .when(this.editId===item.id,e=>e.px(7).bg(t.background).border_1().border_color(t.input)
++        .on_mouse_down_out((_e,cx)=>this.finishEdit(cx)))
++      .when(this.editId!==item.id,e=>e.hover(s=>s.bg(t.hover)))
 +      .on_hover((on,cx)=>{if(on)this.hoverItem=item.i;else if(this.hoverItem===item.i)this.hoverItem=null;cx.notify();})
 +      .child(div().id(`item-check-${item.i}`).size(14).flex_none().rounded(4).border_1().cursor_pointer()
 +        .flex().items_center().justify_center()
 +        .border_color(item.done?t.muted:t.dim).when(item.done,e=>e.bg(t.muted).text_color(t.chrome))
-+        .on_click((_e,cx)=>{cx.stop_propagation();this.setLine(item.i,`- [${item.done?' ':'x'}] ${item.text}`,cx);})
++        .on_click((_e,cx)=>{cx.stop_propagation();this.toggleItem(item,cx);})
 +        .when(item.done,e=>e.child(svg('mods/sakwa/icons/check.svg').size(11))))
 +      .child(this.itemText(item,t))
-+      .when(this.hoverItem===item.i&&!item.done,e=>e.child(this.headerIcon(`item-send-${item.i}`,'send',
++      .when(this.hoverItem===item.i&&!item.done&&this.editId!==item.id,e=>e.child(this.headerIcon(`item-send-${item.i}`,'send',
 +        candidates.length?'Send this item':'No live agents in this note context',
 +        (_e,cx)=>{cx.stop_propagation();this.sendItem(item,cx);},!candidates.length||this.busy))));
-+    const editing=this.editIndex!==null;
 +    const add=h_flex().id('item-add').mx(8).mt(4).pl(10).pr(4).h(30).flex_none().rounded(7).items_center().gap(6)
-+      .border_1().border_color(editing?t.input:t.border).bg(t.chrome)
++      .border_1().border_color(t.border).bg(t.chrome)
 +      .child(Input.new(this.itemInput).flex_1().min_w(0).h(28).text_size(13).text_color(t.foreground))
 +      .child(div().id('item-submit').size(22).flex_none().rounded(5).flex().items_center().justify_center()
 +        .text_color(t.dim).cursor_pointer().hover(s=>s.bg(t.hover).text_color(t.foreground))
-+        .tooltip(editing?'Save (Enter)':'Add (Enter)')
++        .tooltip('Add (Enter)')
 +        .on_click((_e,cx)=>this.submitItem(cx))
-+        .child(svg(`mods/sakwa/icons/${editing?'check':'plus'}.svg`).size(14)));
++        .child(svg('mods/sakwa/icons/plus.svg').size(14)));
 +    return v_flex().id('note-items').flex_1().min_h(0).min_w(0)
 +      .child(v_flex().flex_1().min_h(0).min_w(0).overflow_y_scrollbar().children(rows))
 +      .when(ready,e=>e.child(add));
@@ -247,15 +279,15 @@ index 775bf93..f9ab815 100644
    desired() { return this.pinned || contextFor(this.scope,focused(),spaces()); }
    note(key) { return this.journal.notes().find(n=>n.key===key); }
    setText(value) {
-@@ -71,6 +181,7 @@ export default class Sakwa extends View {
+@@ -71,6 +222,7 @@ export default class Sakwa extends View {
      const next=this.desired();
      if(!next){this.current=null;this.setText('');return;}
      const key=contextKey(next),changed=!this.current || contextKey(this.current)!==key;
-+    if(changed)this.editIndex=null;
++    if(changed)this.editId=null;
      const note=this.note(key),draft=this.book?.get(key);
      const ids=draft?[draft.id]:(note?.heads.map(h=>h.id)||[]);
      const signature=JSON.stringify(ids.slice().sort());
-@@ -190,7 +301,7 @@ export default class Sakwa extends View {
+@@ -190,7 +342,7 @@ export default class Sakwa extends View {
    }
    send(address,cx) {
      if(this.busy || !this.current)return;
@@ -264,7 +296,7 @@ index 775bf93..f9ab815 100644
      this.busy=true;this.panel=null;this.message=null;
      this.work(cx,async()=>{
        try {
-@@ -203,6 +314,7 @@ export default class Sakwa extends View {
+@@ -203,6 +355,7 @@ export default class Sakwa extends View {
      });
    }
    sendClick(cx) {
@@ -272,7 +304,7 @@ index 775bf93..f9ab815 100644
      const candidates=recipients(this.current,agents(),terminals());
      if(candidates.length===1)this.send(candidates[0].address,cx);
      else {this.panel='recipients';cx.notify();}
-@@ -249,28 +361,43 @@ export default class Sakwa extends View {
+@@ -249,28 +402,43 @@ export default class Sakwa extends View {
      const labels=(this.width||0)>=460;
      const frame=v_flex().id('sakwa-root').size_full().min_h(0).min_w(0)
        .on_size_change((size,cx)=>{if(this.width!==size.width){this.width=size.width;cx.notify();}})
