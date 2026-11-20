@@ -24,7 +24,9 @@
           "type": "column",
           "children": [
             { "id": "spaces", "type": "block", "size": { "weight": 1 }, "min": 90, "content": { "mod": "spaces" } },
-            { "id": "agents", "type": "block", "size": { "weight": 1 }, "min": 90, "content": { "mod": "agents" } }
+            { "id": "agents", "type": "block", "size": { "weight": 1 }, "min": 90, "content": { "mod": "agents" } },
+            { "id": "notes", "type": "block", "size": { "weight": 1 }, "min": 140,
+              "content": { "mod": "sakwa", "props": { "role": "sidebar", "bare": true } } }
           ]
         },
         { "id": "sidebar-footer", "type": "block", "size": { "px": 69 },

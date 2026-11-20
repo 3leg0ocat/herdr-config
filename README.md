@@ -1,14 +1,15 @@
 # herdr-config
 
 My [Herdr](https://herdr.dev) desktop-app setup: a `workbench` layout with Files, Changes,
-GitHub and Automations panels on the right, opened from buttons in the tab bar. It's put
-together from other people's mods, so this repository only holds what I wrote: the layout,
-a small patch, and a script that installs everything else from its upstream repository at a
+GitHub and Automations panels on the right, opened from buttons in the tab bar, and a notes
+list in the sidebar. It's put together from other people's mods, so this repository only
+holds what I wrote: the layout, two patches, and a script that installs everything else from its upstream repository at a
 pinned commit.
 
 ## What's in the window
 
-- **Left**: Herdr's own spaces and agents sidebar, unchanged from the shipped `main` layout.
+- **Left**: Herdr's own spaces and agents sidebar, unchanged from the shipped `main` layout,
+  with Notes under the agents.
 - **Top**: [Better Tabs](https://github.com/munza/herdr-mods/tree/main/better-tabs), with
   Files, Changes, GitHub and Automations buttons on the right.
 - **Right**: a 368px panel. Each space remembers which panel it last showed.
@@ -19,6 +20,7 @@ pinned commit.
 | Changes | `better-changes` (also draws the pane headers) | same |
 | GitHub | `github`, `issue-agent` | [obrunogonzaga/herdr-mods](https://github.com/obrunogonzaga/herdr-mods) `1c7bca1`, MIT, patched |
 | Automations | `automations` | [3leg0ocat/herdr-automations](https://github.com/3leg0ocat/herdr-automations) `windows`, MIT |
+| (sidebar) Notes | `sakwa` | [rgonek/Sakwa](https://github.com/rgonek/Sakwa) `9fb6965`, Apache-2.0, patched |
 
 ## Files here
 
@@ -26,7 +28,13 @@ pinned commit.
 - `patches/github-windows.patch`: the GitHub panel ran macOS `open` for links; this picks
   `rundll32 url.dll,FileProtocolHandler` on Windows and `xdg-open` on Linux (https links only,
   as before). It also says how to install `gh` when it's missing.
-- `install.sh`: fetches the mods above at their pinned commits, applies the patch, copies the
+- `patches/sakwa-list.patch`: Sakwa as a flat block under the agents, styled like them
+  (`"bare": true` in the layout; Send, All notes and the view switch become header icons), and
+  no automatic right-hand dock. It also shows a note as a list: one item per line, stored as
+  Markdown `- [ ]` / `- [x]`. Type in the box at the bottom and press Enter or + to add; tick
+  the box to check; double-click an item to edit it; hover for the full text and the ×. The
+  header icon switches to Sakwa's own text editor for the same note.
+- `install.sh`: fetches the mods above at their pinned commits, applies the patches, copies the
   layout. Anything already installed under the same name is skipped, never overwritten.
 
 ## Install
@@ -71,10 +79,12 @@ Mods are unsandboxed code. Before installing, know that:
   (`hc`).
 - The GitHub panel runs `gh`, which talks to GitHub. Its Agent button creates a git worktree
   and starts an agent there.
+- Sakwa keeps notes as files under `data/sakwa` in the Herdr home and can send a note to an
+  agent (`hc`).
 - The Automations panel runs the `herdr-automations` CLI; the scheduler starts agents on the
   schedules you write and creates worktrees for them.
 
 ## License
 
 The layout, patch and script are MIT ([LICENSE](LICENSE)). The mods keep their own licenses
-in their upstream repositories; apart from the context lines of the patch, none of their code is copied here.
+in their upstream repositories; apart from the context lines of the patches, none of their code is copied here.
