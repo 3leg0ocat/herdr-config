@@ -1,0 +1,40 @@
+diff --git a/mods/github/gh.js b/mods/github/gh.js
+index ffe7718..5c10849 100644
+--- a/mods/github/gh.js
++++ b/mods/github/gh.js
+@@ -5,11 +5,13 @@ export function friendlyError(output) {
+   if (/not a git repository/i.test(text)) return "Not a git repository";
+   if (/no git remotes|none of the git remotes/i.test(text)) return "No GitHub remote in this repo";
+   if (/gh auth login|not logged/i.test(text)) return "Run gh auth login first";
++  // Local change: name the fix when gh itself is missing.
++  if (/cannot run gh|program not found/i.test(text)) return "gh is not installed: winget install GitHub.cli, then gh auth login";
+   return text.trim().split("\n")[0];
+ }
+ 
+ export async function gh(args, cwd, on) {
+-  const result = await exec("gh", args, { cwd, on });
++  const result = await exec("gh", args, { cwd, on }).catch((e) => { throw new Error(friendlyError(e)); });
+   if (result.code !== 0) throw new Error(friendlyError(result.stderr || result.stdout));
+   return JSON.parse(result.stdout);
+ }
+diff --git a/mods/github/open.js b/mods/github/open.js
+index 23ca410..c56e292 100644
+--- a/mods/github/open.js
++++ b/mods/github/open.js
+@@ -1,7 +1,14 @@
+-import { exec } from "herdr";
++import { exec, window } from "herdr";
+ import { safeUrl } from "./urls.js";
+ 
++// Local change: upstream only ran macOS `open`. Pick the system opener per platform.
++// safeUrl lets only https through, so the URL never reaches a shell as an option or a command.
+ export function openUrl(url) {
+   const safe = safeUrl(url);
+-  if (safe) exec("open", ["--", safe]).catch(() => {});
++  if (!safe) return;
++  const platform = window()?.platform;
++  const [program, args] = platform === "windows" ? ["rundll32", ["url.dll,FileProtocolHandler", safe]]
++    : platform === "linux" ? ["xdg-open", [safe]]
++    : ["open", ["--", safe]];
++  exec(program, args).catch(() => {});
+ }
