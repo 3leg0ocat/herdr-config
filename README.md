@@ -32,8 +32,10 @@ pinned commit.
   (`"bare": true` in the layout; Send, All notes and the view switch become header icons), and
   no automatic right-hand dock. It also shows a note as a list: one item per line, stored as
   Markdown `- [ ]` / `- [x]`. Type in the box at the bottom and press Enter or + to add; tick
-  the box to check; double-click an item to edit it; hover for the full text and the ×. The
-  header icon switches to Sakwa's own text editor for the same note. Upstream Sakwa keeps
+  the box to check; double-click an item to edit it; hover shows the ×, and a long item's full
+  text in a wrapped card. The header icon switches to Sakwa's own text editor for the same
+  note. The Tab / Space / Global buttons each name their own context on hover (the tab's name,
+  the space's name). Upstream Sakwa keeps
   every saved snapshot forever; patched, each note keeps only its newest one (the new file is
   written before the old one is deleted), so there is no history to go back to beyond the
   editor's own undo.

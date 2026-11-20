@@ -96,16 +96,18 @@ index 2bbd1de..0dbb752 100644
      },
      async append(context,text,parents) { return journal.put(journal.revision(context,text,parents)); },
 diff --git a/mods/sakwa/main.js b/mods/sakwa/main.js
-index 775bf93..894fd59 100644
+index 775bf93..7871c93 100644
 --- a/mods/sakwa/main.js
 +++ b/mods/sakwa/main.js
-@@ -1,4 +1,4 @@
+@@ -1,5 +1,5 @@
 -import { View } from 'gpui-kit';
+-import { h_flex, v_flex, EditorState, Editor, InputState, Input } from 'gpui-base';
 +import { View, div, svg } from 'gpui-kit';
- import { h_flex, v_flex, EditorState, Editor, InputState, Input } from 'gpui-base';
++import { h_flex, v_flex, EditorState, Editor, InputState, Input, HoverCard } from 'gpui-base';
  import { spaces, machines, agents, terminals, focused, panes, theme, props, layout, run,
    hc, shared, setShared, nextCommand, notify } from 'herdr';
-@@ -11,12 +11,27 @@ import { openNote, sendNote } from './presentation.js';
+ import { contextFor, contextKey, contextStatus, validContext, recipients } from './context.js';
+@@ -11,12 +11,29 @@ import { openNote, sendNote } from './presentation.js';
  import { returnNoteToSidebar } from './navigation.js';
  import { text, button, popover, row, contextGroup } from './ui.js';
  
@@ -118,6 +120,8 @@ index 775bf93..894fd59 100644
 +    const b=line.match(BULLET);return {i,done:false,text:b?b[1]:line.trim()};
 +  }).filter(Boolean);
 +}
++// Rough rendered width at 13px: wide (CJK) characters about 13px, others about 7px.
++function textWidth(s){let w=0;for(const ch of s)w+=ch.codePointAt(0)>=0x2e80?13:7;return w;}
 +
  export default class Sakwa extends View {
    init(initial,cx) {
@@ -133,7 +137,7 @@ index 775bf93..894fd59 100644
      this.scope='tab';this.pinned=validContext(initial?.context)?initial.context:null;
      this.current=null;this.baseIds=[];this.loaded=false;this.busy=false;this.panel=null;
      this.journal=createJournal(fileAdapter());
-@@ -30,12 +45,8 @@ export default class Sakwa extends View {
+@@ -30,12 +47,8 @@ export default class Sakwa extends View {
      this.editor.on('focus',()=>{this.editing=true;});
      this.editor.on('blur',()=>{this.editing=false;});
      this.editor.on('change',(_e,cx)=>{
@@ -148,7 +152,7 @@ index 775bf93..894fd59 100644
      });
      try { this.book=createDraftBook(this.journal,localStorage,records=>this.recovery.save(records)); }
      catch(e) { this.fatal=e.message;this.notice(e.message,'error',true); }
-@@ -54,6 +65,77 @@ export default class Sakwa extends View {
+@@ -54,6 +67,94 @@ export default class Sakwa extends View {
      });
    }
  
@@ -188,6 +192,27 @@ index 775bf93..894fd59 100644
 +    try{localStorage.setItem('sakwa.mode.v1',mode);}catch{/* View preference only. */}
 +    cx.notify();
 +  }
++  scopeLabels() {
++    // Local: each scope button names its own context (tab name, space name), not the selected one.
++    const focus=focused(),space=spaces().find(s=>s.id===focus?.space),tab=space?.tabs.find(x=>x.id===focus?.tab);
++    const labels={tab:tab?.name||'No tab',space:space?.name||'No space',global:'Global: one note everywhere'};
++    if(this.pinned)labels[this.pinned.scope]=`Pinned · ${this.pinned.label}`;
++    return labels;
++  }
++  itemText(item,t) {
++    const label=div().id(`item-text-${item.i}`).flex_1().w_full().min_w(0).truncate().text_size(13)
++      .text_color(item.done?t.dim:t.foreground).when(item.done,e=>e.line_through())
++      .on_mouse_down('left',(e,cx)=>{if(e.click_count===2)this.editItem(item,cx);})
++      .child(item.text||' ');
++    // Only text that may not fit gets a preview card; it wraps instead of one long line.
++    const room=Math.max(80,(this.width||240)-80);
++    if(textWidth(item.text)<=room)return label;
++    return HoverCard.new(`item-card-${item.i}`).flex_1().min_w(0).anchor('top_left').open_delay(400)
++      .trigger(label)
++      .content(v_flex().w(Math.max(220,Math.min(320,(this.width||240)+40))).px(12).py(9).rounded(8)
++        .border_1().border_color(t.border).bg(t.popover).shadow_md()
++        .text_size(13).text_color(item.done?t.muted:t.foreground).whitespace_normal().child(item.text));
++  }
 +  itemList(ready) {
 +    const t=theme(),items=ready?parseItems(this.editor.value()):[];
 +    const rows=items.map(item=>h_flex().id(`item-${item.i}`).px(8).h(30).flex_none().rounded(8).items_center().gap(9)
@@ -199,11 +224,7 @@ index 775bf93..894fd59 100644
 +        .border_color(item.done?t.muted:t.dim).when(item.done,e=>e.bg(t.muted).text_color(t.chrome))
 +        .on_click((_e,cx)=>{cx.stop_propagation();this.setLine(item.i,`- [${item.done?' ':'x'}] ${item.text}`,cx);})
 +        .when(item.done,e=>e.child(svg('mods/sakwa/icons/check.svg').size(11))))
-+      .child(div().id(`item-text-${item.i}`).flex_1().min_w(0).truncate().text_size(13)
-+        .text_color(item.done?t.dim:t.foreground).when(item.done,e=>e.line_through())
-+        .tooltip(item.text)
-+        .on_mouse_down('left',(e,cx)=>{if(e.click_count===2)this.editItem(item,cx);})
-+        .child(item.text||' '))
++      .child(this.itemText(item,t))
 +      .when(this.hoverItem===item.i,e=>e.child(div().id(`item-del-${item.i}`).flex_none().cursor_pointer()
 +        .text_color(t.dim).hover(s=>s.text_color(t.foreground)).tooltip('Delete')
 +        .on_click((_e,cx)=>{cx.stop_propagation();this.hoverItem=null;
@@ -226,7 +247,7 @@ index 775bf93..894fd59 100644
    desired() { return this.pinned || contextFor(this.scope,focused(),spaces()); }
    note(key) { return this.journal.notes().find(n=>n.key===key); }
    setText(value) {
-@@ -71,6 +153,7 @@ export default class Sakwa extends View {
+@@ -71,6 +172,7 @@ export default class Sakwa extends View {
      const next=this.desired();
      if(!next){this.current=null;this.setText('');return;}
      const key=contextKey(next),changed=!this.current || contextKey(this.current)!==key;
@@ -234,7 +255,7 @@ index 775bf93..894fd59 100644
      const note=this.note(key),draft=this.book?.get(key);
      const ids=draft?[draft.id]:(note?.heads.map(h=>h.id)||[]);
      const signature=JSON.stringify(ids.slice().sort());
-@@ -249,28 +332,42 @@ export default class Sakwa extends View {
+@@ -249,28 +351,42 @@ export default class Sakwa extends View {
      const labels=(this.width||0)>=460;
      const frame=v_flex().id('sakwa-root').size_full().min_h(0).min_w(0)
        .on_size_change((size,cx)=>{if(this.width!==size.width){this.width=size.width;cx.notify();}})
@@ -268,9 +289,10 @@ index 775bf93..894fd59 100644
 -      .child(row().id('scope-tools')
 +      .child(row().id('scope-tools').when(this.bare,e=>e.px(8))
          .child(v_flex().flex_1().min_w(0).child(contextGroup(this.current?.scope||this.pinned?.scope||this.scope,(scope,cx)=>this.selectScope(scope,cx),
-           this.current?`${this.pinned?'Pinned · ':''}${this.current.label}`:null)))
+-          this.current?`${this.pinned?'Pinned · ':''}${this.current.label}`:null)))
 -        .child(button('all-notes','All notes',(_e,cx)=>{this.panel='all';cx.notify();},{icon:'archive',iconOnly:!labels}))
 -        .child(popover('send','Send to agent',this.panel==='recipients',(open,cx)=>{
++          this.current?`${this.pinned?'Pinned · ':''}${this.current.label}`:null,this.scopeLabels())))
 +        .when(!this.bare,e=>e.child(button('all-notes','All notes',(_e,cx)=>{this.panel='all';cx.notify();},{icon:'archive',iconOnly:!labels})))
 +        .when(!this.bare,e=>e.child(popover('send','Send to agent',this.panel==='recipients',(open,cx)=>{
            if(open)this.sendClick(cx);else if(this.panel==='recipients'){this.panel=null;cx.notify();}
@@ -309,3 +331,26 @@ index 37b255e..a495b0d 100644
 +    async remove(name) { await fs.unlink(`${root}/${name}`); }, // local: prune superseded snapshots
    };
  }
+diff --git a/mods/sakwa/ui.js b/mods/sakwa/ui.js
+index 7a50688..6781696 100644
+--- a/mods/sakwa/ui.js
++++ b/mods/sakwa/ui.js
+@@ -22,15 +22,15 @@ export function popover(id,label,open,change,content,options={}) {
+       .p(8).gap(6).rounded(8).border_1().border_color(t.border).bg(t.popover)
+       .text_color(t.foreground).overflow_y_scrollbar().child(content())));
+ }
+-export function contextGroup(selected,select,description) {
++export function contextGroup(selected,select,description,labels=null) {
+   const t=theme();
+-  return h_flex().flex_none().w_full().min_w(0).tooltip(description||'Note context')
++  return h_flex().flex_none().w_full().min_w(0).when(!labels,e=>e.tooltip(description||'Note context'))
+     .child(h_flex().id('note-context').role('group').accessibility_label('Note context')
+     .flex().flex_row().flex_none().w_full().min_w(0)
+     .rounded(7).p(2).gap(2).bg(t.chrome).border_1().border_color(t.border).overflow_hidden()
+     .children(['tab','space','global'].map(scope=>{
+       const active=scope===selected,label=scope[0].toUpperCase()+scope.slice(1);
+-      return Button.new(`scope-${scope}`).selected(active).tab_index(0)
++      return Button.new(`scope-${scope}`).selected(active).tab_index(0).when(Boolean(labels),e=>e.tooltip(labels[scope]))
+         .accessibility_label(label)
+         .on_click((_event,cx)=>select(scope,cx))
+         .h(26).flex_1().min_w(0).flex().items_center().justify_center().text_size(12).rounded(5)
