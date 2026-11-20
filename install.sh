@@ -11,7 +11,7 @@ MUNZA_REV=1abf4870adb4c3f7a71739db1e0c29493f5e3f95
 GONZAGA=https://github.com/obrunogonzaga/herdr-mods
 GONZAGA_REV=1c7bca1650321f550a94dac399f5a1e5cc1e1543
 AUTOMATIONS=https://github.com/3leg0ocat/herdr-automations
-AUTOMATIONS_REV=2d14b72cac9d42f66572d3ea11a30f7fc88f0fac
+AUTOMATIONS_REV=2be115a6e048ac89abe3076240a774e8ea4606da
 SAKWA=https://github.com/rgonek/Sakwa
 SAKWA_REV=9fb69650668c7ffcddcaac4878aa373ac343e0cd
 
