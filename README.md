@@ -33,7 +33,10 @@ pinned commit.
   no automatic right-hand dock. It also shows a note as a list: one item per line, stored as
   Markdown `- [ ]` / `- [x]`. Type in the box at the bottom and press Enter or + to add; tick
   the box to check; double-click an item to edit it; hover for the full text and the ×. The
-  header icon switches to Sakwa's own text editor for the same note.
+  header icon switches to Sakwa's own text editor for the same note. Upstream Sakwa keeps
+  every saved snapshot forever; patched, each note keeps only its newest one (the new file is
+  written before the old one is deleted), so there is no history to go back to beyond the
+  editor's own undo.
 - `install.sh`: fetches the mods above at their pinned commits, applies the patches, copies the
   layout. Anything already installed under the same name is skipped, never overwritten.
 
@@ -79,8 +82,8 @@ Mods are unsandboxed code. Before installing, know that:
   (`hc`).
 - The GitHub panel runs `gh`, which talks to GitHub. Its Agent button creates a git worktree
   and starts an agent there.
-- Sakwa keeps notes as files under `data/sakwa` in the Herdr home and can send a note to an
-  agent (`hc`).
+- Sakwa keeps notes as files under `data/sakwa` in the Herdr home (patched: it deletes a
+  note's older snapshot files there) and can send a note to an agent (`hc`).
 - The Automations panel runs the `herdr-automations` CLI; the scheduler starts agents on the
   schedules you write and creates worktrees for them.
 

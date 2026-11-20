@@ -52,6 +52,49 @@ index 0000000..bd4c19b
 +<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 +<path d="M18 6 6 18"/><path d="m6 6 12 12"/>
 +</svg>
+diff --git a/mods/sakwa/journal.js b/mods/sakwa/journal.js
+index 2bbd1de..0dbb752 100644
+--- a/mods/sakwa/journal.js
++++ b/mods/sakwa/journal.js
+@@ -14,10 +14,20 @@ export function validRevision(r) {
+ 
+ export function createJournal(io) {
+   const records = new Map();
++  // Local: pruned ids still count as saved, so recovery copies never bring them back.
++  const pruned = new Set();
+   let loading;
+   const journal = {
+     errors: [],
+-    has: id=>records.has(id),
++    has: id=>records.has(id)||pruned.has(id),
++    async prune(ids) {
++      if (!io.remove) return;
++      for (const id of ids) {
++        if (!records.has(id)) continue;
++        records.delete(id);pruned.add(id);
++        try { await io.remove(`${id}.json`); } catch { /* Left over; pruned again on the next load. */ }
++      }
++    },
+     async load() {
+       if (loading) return loading;
+       loading = (async()=>{
+@@ -31,6 +41,8 @@ export function createJournal(io) {
+           } catch (e) { errors.push(`${name}: ${e.message}`); }
+         }
+         journal.errors = errors;
++        const superseded = new Set([...records.values()].flatMap(r=>r.parents));
++        await journal.prune([...records.keys()].filter(id=>superseded.has(id)));
+       })();
+       try { await loading; } finally { loading = null; }
+     },
+@@ -50,6 +62,7 @@ export function createJournal(io) {
+         if (existing !== raw) throw error;
+       }
+       records.set(record.id,record);
++      await journal.prune(record.parents);
+       return record;
+     },
+     async append(context,text,parents) { return journal.put(journal.revision(context,text,parents)); },
 diff --git a/mods/sakwa/main.js b/mods/sakwa/main.js
 index 775bf93..894fd59 100644
 --- a/mods/sakwa/main.js
@@ -255,3 +298,14 @@ index c2f5c19..d61eab9 100644
    "size": 380,
    "title": "Sakwa",
    "focusable": true
+diff --git a/mods/sakwa/persistence.js b/mods/sakwa/persistence.js
+index 37b255e..a495b0d 100644
+--- a/mods/sakwa/persistence.js
++++ b/mods/sakwa/persistence.js
+@@ -10,5 +10,6 @@ export function fileAdapter() {
+     async list() { await directory();return fs.readdir(root); },
+     async read(name) { return fs.readFile(`${root}/${name}`,'utf8'); },
+     async create(name,text) { await directory();await writeTextFile(`${root}/${name}`,text,null); },
++    async remove(name) { await fs.unlink(`${root}/${name}`); }, // local: prune superseded snapshots
+   };
+ }
