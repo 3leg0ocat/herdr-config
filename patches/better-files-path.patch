@@ -194,10 +194,10 @@ index e1157a9..ba9e63a 100644
          break;
 diff --git a/mods/better-files/views/path.js b/mods/better-files/views/path.js
 new file mode 100644
-index 0000000..32c1980
+index 0000000..0ad6fdd
 --- /dev/null
 +++ b/mods/better-files/views/path.js
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,111 @@
 +// The header's folder as a path you can type over, the way Explorer's address bar works:
 +// click the title, type or paste a folder or a file, Enter goes there, Escape or a click
 +// elsewhere leaves it as it was.
@@ -259,13 +259,15 @@ index 0000000..32c1980
 +    });
 +  },
 +
-+  // The title, or the box in its place.
++  // The title, or the box in its place: only the title's room, so the buttons beside it stay
++  // where they were, clear of its border.
 +  pathTitle(t) {
 +    if (this.editingPath)
 +      return h_flex()
 +        .id("files-path")
 +        .flex_1()
 +        .min_w(0)
++        .mr(2)
 +        .items_center()
 +        .on_key_down((event, cx) => {
 +          if (event.keystroke !== "escape") return;
@@ -288,7 +290,11 @@ index 0000000..32c1980
 +          .on_click((_e, cx) => this.startPathEdit(cx)),
 +      )
 +      .child(div().flex_none().font_medium().child("Files"))
-+      .when(Boolean(label), (el) => el.child(away ? Badge(label).text_color(t.accent).border_color(t.accent) : Badge(label)));
++      .when(Boolean(label), (el) => {
++        // A long path, as Windows folders give, is cut short to fit beside the buttons.
++        const badge = Badge(label).flex_shrink(1).min_w(0).truncate();
++        return el.child(away ? badge.text_color(t.accent).border_color(t.accent) : badge);
++      });
 +  },
 +
 +  // Refresh, as ever; on a typed folder it also goes back to the pane's own, read afresh.
@@ -304,7 +310,7 @@ index 0000000..32c1980
 +  },
 +};
 diff --git a/mods/better-files/views/tree.js b/mods/better-files/views/tree.js
-index 2a30edd..3144a37 100644
+index 2a30edd..502a88d 100644
 --- a/mods/better-files/views/tree.js
 +++ b/mods/better-files/views/tree.js
 @@ -3,23 +3,15 @@ import { div } from "gpui-kit";
@@ -351,7 +357,8 @@ index 2a30edd..3144a37 100644
 -            .child(div().flex_none().font_medium().child("Files"))
 -            .when(Boolean(folderLabel(this.root)), (el) => el.child(Badge(folderLabel(this.root)))),
 -        )
--        .when(Boolean(this.root && !this.on), (el) => el.child(this.folderMenu(t)))
++        .child(this.pathTitle(t))
+         .when(Boolean(this.root && !this.on), (el) => el.child(this.folderMenu(t)))
 -        .child(
 -          IconButton({
 -            id: "files-refresh",
@@ -361,8 +368,6 @@ index 2a30edd..3144a37 100644
 -            onClick: (cx) => this.refresh(cx),
 -          }),
 -        ),
-+        .child(this.pathTitle(t))
-+        .when(Boolean(this.root && !this.on && !this.editingPath), (el) => el.child(this.folderMenu(t)))
 +        .child(this.refreshButton()),
      );
      if (this.root) root.child(this.filterRow(t));
