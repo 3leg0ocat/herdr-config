@@ -50,7 +50,10 @@ fetch "$GONZAGA" "$GONZAGA_REV" "$work/gonzaga"
 fetch "$AUTOMATIONS" "$AUTOMATIONS_REV" "$work/automations"
 fetch "$SAKWA" "$SAKWA_REV" "$work/sakwa"
 
-for m in better-files better-changes better-tabs better-icons; do
+if put "$work/munza/better-files/mods/better-files" better-files; then
+  (cd "$home_dir" && git apply "$here/patches/better-files-path.patch")
+fi
+for m in better-changes better-tabs better-icons; do
   put "$work/munza/$m/mods/$m" "$m" || true
 done
 if put "$work/gonzaga/github-panel/mods/github" github; then

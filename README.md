@@ -3,7 +3,7 @@
 My [Herdr](https://herdr.dev) desktop-app setup: a `workbench` layout with Files, Changes,
 GitHub and Automations panels on the right, opened from buttons in the tab bar, and a notes
 list in the sidebar. It's put together from other people's mods, so this repository only
-holds what I wrote: the layout, two patches, and a script that installs everything else from its upstream repository at a
+holds what I wrote: the layout, three patches, and a script that installs everything else from its upstream repository at a
 pinned commit.
 
 ## What's in the window
@@ -16,7 +16,7 @@ pinned commit.
 
 | Button | Mod | Source |
 | --- | --- | --- |
-| Files | `better-files` (+ `better-icons` for colour file icons) | [munza/herdr-mods](https://github.com/munza/herdr-mods) `1abf487`, Apache-2.0 |
+| Files | `better-files` (+ `better-icons` for colour file icons) | [munza/herdr-mods](https://github.com/munza/herdr-mods) `1abf487`, Apache-2.0, patched |
 | Changes | `better-changes` (also draws the pane headers) | same |
 | GitHub | `github`, `issue-agent` | [obrunogonzaga/herdr-mods](https://github.com/obrunogonzaga/herdr-mods) `1c7bca1`, MIT, patched |
 | Automations | `automations` | [3leg0ocat/herdr-automations](https://github.com/3leg0ocat/herdr-automations) `windows`, MIT |
@@ -25,6 +25,18 @@ pinned commit.
 ## Files here
 
 - `layouts/workbench.json`, `layouts/workbench.svg`: the layout and its preview in Settings.
+- `patches/better-files-path.patch`: the Files header works like Explorer's address bar.
+  Click the title (or press `ctrl-l` in the tree) and the folder's full path comes up to type
+  over; Enter goes there, Escape or a click elsewhere leaves it. The path is taken as typed:
+  only the spaces around it are dropped, `~` is the home folder, a relative path is read from
+  the folder on show, and on Windows `%VAR%` is expanded and a bare `D:` means `D:\`. A path
+  that isn't there is reported as Explorer reports it, with the box left open to correct:
+  `Cannot find "…". Check the spelling and try again.`, or for a folder that can't be read,
+  `Access to "…" is denied. You do not have permission to open this folder.` A file shows its
+  folder and opens in a tab. The header looks as before until a typed folder is on show: then
+  its name is in the accent colour, and Refresh still refreshes but also goes back to the
+  terminal's folder. Moving to another space, to a terminal in another folder, or a `cd` in
+  the terminal goes back too; looking at a file tab doesn't.
 - `patches/github-windows.patch`: the GitHub panel ran macOS `open` for links; this picks
   `rundll32 url.dll,FileProtocolHandler` on Windows and `xdg-open` on Linux (https links only,
   as before). It also says how to install `gh` when it's missing.
@@ -93,5 +105,5 @@ Mods are unsandboxed code. Before installing, know that:
 
 ## License
 
-The layout, patch and script are MIT ([LICENSE](LICENSE)). The mods keep their own licenses
+The layout, patches and script are MIT ([LICENSE](LICENSE)). The mods keep their own licenses
 in their upstream repositories; apart from the context lines of the patches, none of their code is copied here.

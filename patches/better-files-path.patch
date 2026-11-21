@@ -1,0 +1,369 @@
+diff --git a/mods/better-files/files/reads.js b/mods/better-files/files/reads.js
+index 5b0e9ea..e7bfa7d 100644
+--- a/mods/better-files/files/reads.js
++++ b/mods/better-files/files/reads.js
+@@ -1,7 +1,7 @@
+ // Reading the folder tree, and Git's view of it, for the focused pane's folder.
+ import { spaces, panes, focused, exec, watchFolder, window } from "herdr";
+ import { PER_FOLDER, parseStatus, sortEntries } from "./model.js";
+-import { pickListing } from "./shell.js";
++import { pickListing, pickResolve, RESOLVE_DENIED, RESOLVE_MISSING } from "./shell.js";
+ import { indexOf } from "./filter.js";
+ 
+ const INDEX_BYTES = 4000000;
+@@ -69,10 +69,87 @@ function liveFolder(space) {
+   return null;
+ }
+ 
++// No slash at the end but a drive's or /'s. Each system's own slashes are kept, as a
++// terminal's folder keeps them, so the header shows a typed folder the way it shows that.
++const tidyPath = (path) => (/^(?:[A-Za-z]:)?[\\/]$/.test(path) ? path : path.replace(/[\\/]+$/, ""));
++
++// A file's folder and name; a drive's top keeps its slash.
++function splitPath(path) {
++  const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
++  let folder = path.slice(0, at);
++  if (/^[A-Za-z]:$/.test(folder)) folder += path[at];
++  return { folder: folder || "/", name: path.slice(at + 1) };
++}
++
++// The same folder, however its slashes and (on Windows) its letters are written.
++const sameFolder = (a, b) => {
++  const norm = (p) => {
++    const q = tidyPath(p).replace(/\\/g, "/");
++    return /^[A-Za-z]:/.test(q) ? q.toLowerCase() : q;
++  };
++  return norm(a) === norm(b);
++};
++
++// What went wrong with a typed path, worded as Explorer words it.
++export function pathProblem(path, code) {
++  if (code === RESOLVE_DENIED) return `Access to "${path}" is denied. You do not have permission to open this folder.`;
++  return `Cannot find "${path}". Check the spelling and try again.`;
++}
++
++// What a typed path is, as an absolute path on the machine the tree reads. The path is taken
++// as typed: only the spaces around it are left out.
++async function resolvePath(path, base, on) {
++  const platform = on ? null : window()?.platform;
++  const { program, args } = pickResolve(path, base, platform);
++  const r = await exec(program, args, { on });
++  if (r.code === RESOLVE_MISSING || r.code === RESOLVE_DENIED) throw new Error(pathProblem(path, r.code));
++  const [kind, found] = r.code === 0 ? r.stdout.split("\0") : [];
++  if (!found) throw new Error(`Cannot open "${path}". ${r.stderr?.trim() || "The path could not be read."}`);
++  return { dir: kind === "d", path: tidyPath(found) };
++}
++
+ export const readMethods = {
++  // A folder typed in the header, shown in place of the pane's until the pane's folder
++  // changes (another pane, another space, a cd) or the button beside it brings it back.
++  location() {
++    const here = this.paneLocation();
++    if (this.browse) {
++      if (this.browse.from === JSON.stringify(here)) return this.browse.place;
++      this.browse = null;
++    }
++    return here;
++  },
++
++  browsing() {
++    return Boolean(this.browse) && this.location() === this.browse?.place;
++  },
++
++  // Shows a typed folder; a file opens too, in its folder. Throws what went wrong.
++  async goTo(text, cx) {
++    const wanted = text.trim();
++    if (!wanted) return;
++    const here = this.paneLocation();
++    const found = await resolvePath(wanted, this.root, here.on);
++    const { folder, name } = found.dir ? { folder: found.path } : splitPath(found.path);
++    const same = Boolean(here.cwd) && sameFolder(here.cwd, folder);
++    this.browse = same ? null : { from: JSON.stringify(here), place: { cwd: folder, on: here.on, space: here.space } };
++    this.refresh(cx);
++    if (!found.dir) {
++      // Named as the tree names its rows, so the open file's row shows as open.
++      this.cursor = name;
++      this.openFile(this.fileOf(name), cx);
++    }
++  },
++
++  // Back to the focused pane's folder.
++  goBack(cx) {
++    this.browse = null;
++    this.refresh(cx);
++  },
++
+   // The focused pane's folder. A file or diff tab has no folder of its own, so looking at
+   // one keeps the tree where it was instead of jumping back to the space's.
+-  location() {
++  paneLocation() {
+     const space = spaces().find((s) => s.active);
+     const f = focused();
+     const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
+diff --git a/mods/better-files/files/shell.js b/mods/better-files/files/shell.js
+index 39c128f..bffdbd9 100644
+--- a/mods/better-files/files/shell.js
++++ b/mods/better-files/files/shell.js
+@@ -32,6 +32,31 @@ export function pickListing(path, perFolder, platform) {
+   };
+ }
+ 
++// --- A path typed in the header ---
++// Wire contract (both): `d` or `f`, NUL, the absolute path. A relative path is read from
++// $2, `~` is the home folder. Exit RESOLVE_MISSING when there is nothing there (or the path
++// can't be one), RESOLVE_DENIED for a folder that can't be read.
++export const RESOLVE_MISSING = 2;
++export const RESOLVE_DENIED = 3;
++
++const RESOLVE_SH = `p=$1; case $p in "~") p=$HOME ;; "~/"*) p=$HOME/\${p#"~/"} ;; /*) ;; *) [ -n "$2" ] || exit ${RESOLVE_MISSING}; p=$2/$p ;; esac
++if [ -d "$p" ]; then { [ -r "$p" ] && [ -x "$p" ]; } || exit ${RESOLVE_DENIED}; cd -- "$p" || exit ${RESOLVE_DENIED}; printf 'd\\0%s' "$(pwd)"
++elif [ -e "$p" ]; then d=$(cd -- "$(dirname -- "$p")" && pwd) || exit ${RESOLVE_DENIED}; printf 'f\\0%s/%s' "\${d%/}" "$(basename -- "$p")"
++else exit ${RESOLVE_MISSING}; fi`;
++
++// A bare drive (`D:`) means its top, as in Explorer, not that drive's current folder.
++const RESOLVE_PS = `[Console]::OutputEncoding=[Text.Encoding]::UTF8; try { $p=[Environment]::ExpandEnvironmentVariables($args[0]); $b=$args[1]; if ($p -eq '~' -or $p -like '~/*' -or $p -like '~\\*') { $p=$HOME + $p.Substring(1) }; if ($p -match '^[A-Za-z]:$') { $p+='\\' }; if (-not [IO.Path]::IsPathRooted($p)) { if (-not $b) { exit ${RESOLVE_MISSING} }; $p=Join-Path $b $p }; $i=Get-Item -LiteralPath $p -Force -ErrorAction Stop } catch [UnauthorizedAccessException] { exit ${RESOLVE_DENIED} } catch { exit ${RESOLVE_MISSING} }; if ($i.PSIsContainer) { try { Get-ChildItem -LiteralPath $i.FullName -Force -ErrorAction Stop | Select-Object -First 1 | Out-Null } catch { exit ${RESOLVE_DENIED} } }; $k=if ($i.PSIsContainer) {'d'} else {'f'}; [Console]::Out.Write($k + [char]0 + $i.FullName)`;
++
++export function pickResolve(path, base, platform) {
++  if (isWin(platform)) {
++    return {
++      program: "powershell.exe",
++      args: ["-NoProfile", "-NoLogo", "-Command", `& { ${RESOLVE_PS} } ${psQuote(path)} ${psQuote(base ?? "")}`],
++    };
++  }
++  return { program: "sh", args: ["-c", RESOLVE_SH, "resolve", path, base ?? ""] };
++}
++
+ // --- Image copy (viewer + markdown) ---
+ // Copies go in a hidden folder: saving any other file in a mod's folder makes Herdr reload
+ // the mod, which threw the tree away on every picture opened. Herdr doesn't see a hidden file
+diff --git a/mods/better-files/main.js b/mods/better-files/main.js
+index fe22928..71b23d5 100644
+--- a/mods/better-files/main.js
++++ b/mods/better-files/main.js
+@@ -12,6 +12,7 @@
+ //   actions/menus.js      popup menus
+ //   views/tree.js, filter.js, tools.js, viewer.js, context-menu.js   the drawing
+ //   views/keys.js         the tree from the keyboard
++//   views/path.js         the header's folder as a path to type over
+ // files/model.js says what the data means; views/ui.js holds every look but the token
+ // colours: syntax.js colours the file view's code, and Better Changes has the same file.
+ import { View } from "gpui-kit";
+@@ -30,6 +31,7 @@ import { savedDotfiles, toolMethods } from "./views/tools.js";
+ import { keyMethods } from "./views/keys.js";
+ import { viewerMethods } from "./views/viewer.js";
+ import { contextMenuMethods } from "./views/context-menu.js";
++import { pathMethods } from "./views/path.js";
+ 
+ const DEFAULT_SETTINGS = { refresh: { tree: "10s", file: "2s" }, editors: [], gutter: true, markdown: "preview" };
+ const SYNC_MS = 300;
+@@ -110,6 +112,12 @@ class BetterFiles extends View {
+       this.filterFocused = false;
+       cx.notify();
+     });
++    this.pathInput = InputState.new({ placeholder: "A folder or file path" });
++    this.pathInput.on("submit", (_e, cx) => this.submitPath(cx));
++    // A click elsewhere leaves the folder as it was, unless a typed one is still being found.
++    this.pathInput.on("blur", (_e, cx) => {
++      if (!this.pathBusy) this.endPathEdit(cx);
++    });
+     this.treeScroll = ScrollHandle.new();
+     this.treeFocus = cx.focus_handle();
+     this.dotfiles = savedDotfiles();
+@@ -177,6 +185,7 @@ Object.assign(
+   keyMethods,
+   viewerMethods,
+   contextMenuMethods,
++  pathMethods,
+ );
+ 
+ export default BetterFiles;
+diff --git a/mods/better-files/views/keys.js b/mods/better-files/views/keys.js
+index e1157a9..ba9e63a 100644
+--- a/mods/better-files/views/keys.js
++++ b/mods/better-files/views/keys.js
+@@ -92,6 +92,10 @@ export const keyMethods = {
+       case "/":
+         this.filter.focus();
+         break;
++      // As in Explorer: the folder's path, to type over.
++      case "ctrl-l":
++        this.startPathEdit(cx);
++        break;
+       case ".":
+         this.toggleDotfiles(cx);
+         break;
+diff --git a/mods/better-files/views/path.js b/mods/better-files/views/path.js
+new file mode 100644
+index 0000000..32c1980
+--- /dev/null
++++ b/mods/better-files/views/path.js
+@@ -0,0 +1,105 @@
++// The header's folder as a path you can type over, the way Explorer's address bar works:
++// click the title, type or paste a folder or a file, Enter goes there, Escape or a click
++// elsewhere leaves it as it was.
++import { div } from "gpui-kit";
++import { h_flex } from "gpui-base";
++import { baseName } from "../files/model.js";
++import { Badge, IconButton, TextField } from "./ui.js";
++
++const FOLDER_LABEL = 28;
++// The input is drawn on the next frame, so the keyboard goes to it a moment later.
++const FOCUS_MS = 30;
++
++// The folder on show, short enough to leave the buttons room. As upstream draws it.
++const folderLabel = (root) => {
++  const name = root ? baseName(root) : "";
++  if (!name) return null;
++  return name.length > FOLDER_LABEL ? `${name.slice(0, FOLDER_LABEL)}…` : name;
++};
++
++export const pathMethods = {
++  startPathEdit(cx) {
++    if (!this.root) return;
++    this.editingPath = true;
++    this.pathError = null;
++    this.pathInput.set_value(this.root);
++    cx.notify();
++    cx.timer.after(FOCUS_MS, () => {
++      if (!this.editingPath) return;
++      this.pathInput.focus();
++      this.pathInput.set_selected_range({ start: 0, end: this.pathInput.value().length });
++    });
++  },
++
++  endPathEdit(cx) {
++    if (!this.editingPath) return;
++    this.editingPath = false;
++    this.pathError = null;
++    cx.notify();
++  },
++
++  submitPath(cx) {
++    const text = this.pathInput.value();
++    if (!text.trim() || text === this.root) return this.endPathEdit(cx);
++    this.pathBusy = true;
++    cx.notify();
++    cx.spawn(async (cx) => {
++      try {
++        await this.goTo(text, cx);
++        this.editingPath = false;
++        this.pathError = null;
++        this.treeFocus.focus();
++      } catch (e) {
++        // Left open, to put right.
++        this.pathError = e.message ?? String(e);
++      } finally {
++        this.pathBusy = false;
++        cx.notify();
++      }
++    });
++  },
++
++  // The title, or the box in its place.
++  pathTitle(t) {
++    if (this.editingPath)
++      return h_flex()
++        .id("files-path")
++        .flex_1()
++        .min_w(0)
++        .items_center()
++        .on_key_down((event, cx) => {
++          if (event.keystroke !== "escape") return;
++          cx.stop_propagation();
++          this.endPathEdit(cx);
++        })
++        .child(TextField({ id: "files-path-input", state: this.pathInput, height: 26 }));
++    const label = folderLabel(this.root);
++    const away = this.browsing();
++    return h_flex()
++      .id("files-title")
++      .flex_1()
++      .min_w(0)
++      .gap(6)
++      .items_center()
++      .when(Boolean(this.root), (el) =>
++        el
++          .cursor_text()
++          .tooltip(`${this.root}\nClick to type a path`)
++          .on_click((_e, cx) => this.startPathEdit(cx)),
++      )
++      .child(div().flex_none().font_medium().child("Files"))
++      .when(Boolean(label), (el) => el.child(away ? Badge(label).text_color(t.accent).border_color(t.accent) : Badge(label)));
++  },
++
++  // Refresh, as ever; on a typed folder it also goes back to the pane's own, read afresh.
++  refreshButton() {
++    const away = this.browsing();
++    return IconButton({
++      id: "files-refresh",
++      icon: "refresh",
++      label: away ? "Refresh and return to the terminal's folder" : "Refresh",
++      spinning: Boolean(this.loading || this.pathBusy),
++      onClick: (cx) => (away ? this.goBack(cx) : this.refresh(cx)),
++    });
++  },
++};
+diff --git a/mods/better-files/views/tree.js b/mods/better-files/views/tree.js
+index 2a30edd..3144a37 100644
+--- a/mods/better-files/views/tree.js
++++ b/mods/better-files/views/tree.js
+@@ -3,23 +3,15 @@ import { div } from "gpui-kit";
+ import { h_flex, v_flex } from "gpui-base";
+ import { openOverlay, shared, theme, window } from "herdr";
+ import { openFolderLabel } from "../files/shell.js";
+-import { baseName, holdsChange, markKey, TOTAL_ROWS } from "../files/model.js";
++import { holdsChange, markKey, TOTAL_ROWS } from "../files/model.js";
+ import { viewerEntries } from "../actions/open.js";
+ import { editorId, foundEditors } from "../actions/outside.js";
+ import { agentName } from "../actions/agents.js";
+-import { TEXT, Badge, Button, Chevron, FileIcon, Icon, markColor, IconButton, Message, Panel, PanelHeader, StatusLetter, TextBox } from "./ui.js";
++import { TEXT, Button, Chevron, FileIcon, Icon, markColor, Message, Panel, PanelHeader, StatusLetter, TextBox } from "./ui.js";
+ 
+ const INDENT = 14;
+ // Every row has a border, so the marker's doesn't move the text.
+ const CLEAR = "#00000000";
+-const FOLDER_LABEL = 28;
+-
+-// The folder on show, short enough to leave the refresh button room.
+-const folderLabel = (root) => {
+-  const name = root ? baseName(root) : "";
+-  if (!name) return null;
+-  return name.length > FOLDER_LABEL ? `${name.slice(0, FOLDER_LABEL)}…` : name;
+-};
+ 
+ export const treeMethods = {
+   // What a menu or an agent needs to know about a row, all of it plain data: it crosses to
+@@ -208,29 +200,12 @@ export const treeMethods = {
+ 
+   sidebarView() {
+     const t = theme();
+-    const failure = this.error ?? this.treeError ?? shared("better-files.error");
++    const failure = this.pathError ?? this.error ?? this.treeError ?? shared("better-files.error");
+     const root = Panel({ id: "better-files" }).child(
+       PanelHeader()
+-        .child(
+-          h_flex()
+-            .id("files-title")
+-            .flex_1()
+-            .min_w(0)
+-            .gap(6)
+-            .items_center()
+-            .child(div().flex_none().font_medium().child("Files"))
+-            .when(Boolean(folderLabel(this.root)), (el) => el.child(Badge(folderLabel(this.root)))),
+-        )
+-        .when(Boolean(this.root && !this.on), (el) => el.child(this.folderMenu(t)))
+-        .child(
+-          IconButton({
+-            id: "files-refresh",
+-            icon: "refresh",
+-            label: "Refresh",
+-            spinning: Boolean(this.loading),
+-            onClick: (cx) => this.refresh(cx),
+-          }),
+-        ),
++        .child(this.pathTitle(t))
++        .when(Boolean(this.root && !this.on && !this.editingPath), (el) => el.child(this.folderMenu(t)))
++        .child(this.refreshButton()),
+     );
+     if (this.root) root.child(this.filterRow(t));
+     if (failure) root.child(Message(failure, true));
