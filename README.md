@@ -62,17 +62,18 @@ open PRs and issues of the repository the focused terminal is in. In a fork with
 `upstream` remote, `gh repo set-default` picks which one.
 
 **Automations panel**: the panel talks to the `herdr-automations` scheduler, which has to be
-built and started once. On Windows (Go 1.26+):
+installed and started once. On Windows, in PowerShell (upstream's installer, fetching this fork's
+build; run the first two lines again to update):
 
 ```powershell
-git clone -b windows https://github.com/3leg0ocat/herdr-automations
-cd herdr-automations
-go build -o $HOME\.local\bin\herdr-automations.exe .   # any folder on PATH
-herdr-automations service install                      # starts at logon, hidden
+$env:HERDR_AUTOMATIONS_RELEASES_URL = "https://github.com/3leg0ocat/herdr-automations/releases"
+irm https://raw.githubusercontent.com/3leg0ocat/herdr-automations/windows/scripts/install.ps1 | iex
+herdr-automations service install     # once; starts the scheduler now and at every login
 ```
 
-Then put `backend: hc` (and, if you like, `auto_cleanup: true`) at the top of the
-`automations.yaml` that `herdr-automations list` names. Claude Code asks once per untrusted
+On Windows it always runs agents through hc. To have run worktrees removed when nothing in
+them is needed any more, put `auto_cleanup: true` at the top of the `automations.yaml` that
+`herdr-automations list` names. Claude Code asks once per untrusted
 folder before it starts working; trust `~/.herdr/worktrees` once and every run worktree
 under it is covered.
 
