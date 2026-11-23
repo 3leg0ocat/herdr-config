@@ -1,11 +1,9 @@
-// Stages: the development stages of the focused terminal's repository, and the steps in each,
-// each with its status and one plain sentence, so a code such as "M2" or "Q1f" says what it was.
+// Stages: the development stages of the focused terminal's repository and the steps in each,
+// with their status and what they delivered, so a code such as "Q1f" says what it was.
 //
-// The list is an index an agent makes from the project's own documents (prompt.md), kept in
-// the repository's .git folder: never committed, shared by its worktrees, gone with the
-// clone. Its first line names the documents and the commit it was made at; when they have
-// changed since, the panel offers to bring it up to date from the changes alone. A person may
-// correct the file by hand; an update keeps what it doesn't touch.
+// An agent writes the list from the project's own documents (prompt.md) into the repository's
+// .git folder. Its first line names those documents and the commit it was made at; when they
+// change, Update reads only the changes and keeps the other lines, hand corrections included.
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { appHome, checking, exec, focused, nextCommand, readTextFile, setShared, shared, spaces, theme, window, writeTextFile } from "herdr";
@@ -20,11 +18,9 @@ const CHECK_MS = 30000;
 const AGENT_MS = 600000;
 const TEXT = { badge: 10, caption: 11, small: 12, body: 13 };
 const INDENT = 14;
-// The done steps a stage in progress shows: at least this many however small the panel, at
-// most this many however tall.
+// How many done steps a stage in progress shows, whatever the panel's height.
 const MIN_RECENT = 1;
 const MAX_RECENT = 4;
-// Between the stage in progress and the stages not started yet.
 const GROUP_GAP = 10;
 
 const Icon = (name, size = 14) => svg(`mods/stages/icons/${name}.svg`).size(size).flex_none();
@@ -35,15 +31,14 @@ async function git(cwd, args) {
   return r.stdout;
 }
 
-// The files a source (a file or a folder) names inside the work tree, tracked or not, ignored
-// ones included: a project may keep its plans in a folder Git ignores. Nothing outside it.
+// The files a source (file or folder) names inside the work tree, tracked, untracked or
+// ignored: a project may keep its plans in a folder Git ignores.
 async function filesOf(top, source) {
   const r = await exec("git", ["--no-optional-locks", "-c", "core.quotepath=off", "ls-files", "-co", "-z", "--", source], { cwd: top });
   return r.code === 0 ? r.stdout.split("\0").filter(Boolean) : [];
 }
 
-// What the sources' files that Git doesn't track hold now, by path: commits can't say when
-// they change, so their contents are compared.
+// Content hashes of the untracked source files, which have no commits to tell a change by.
 async function looseHashes(top, sources) {
   const files = [...new Set((await Promise.all(sources.map((s) => filesOf(top, s)))).flat())];
   if (!files.length) return {};
@@ -54,7 +49,7 @@ async function looseHashes(top, sources) {
   return Object.fromEntries(loose.map((f, i) => [f, hashes[i]]));
 }
 
-// pi, read-only tools, no project instructions: the agent only reads and prints.
+// pi with read and bash only and no project instructions: it reads and prints, nothing more.
 async function agentCommand() {
   let settings = {};
   try {
@@ -75,16 +70,16 @@ function openWithDefault(path) {
 
 export default class Stages extends View {
   init(_props, cx) {
-    this.repo = null; // { top, file, name }
+    this.repo = null; // { top, common, file, name }
     this.text = null;
     this.index = null;
-    this.stale = null; // { commits, missing: [...] } or { unknown: true }
-    this.opened = new Map(); // repository → stages shown open, by code or name
+    this.stale = null; // { commits, missing, changed } or { unknown: true }
+    this.opened = new Map(); // repository → Map(row key → open), what clicks changed
     if (checking()) return;
     cx.timer.every(FOLLOW_MS, (cx) => this.follow(cx));
     cx.timer.every(CHECK_MS, (cx) => this.load(cx));
     this.follow(cx);
-    // For keys: stages.generate, stages.update, stages.refresh.
+    // stages.generate, stages.update and stages.refresh, for keys.
     cx.spawn(async (cx) => {
       for (;;) {
         const command = await nextCommand();
@@ -95,7 +90,7 @@ export default class Stages extends View {
     });
   }
 
-  // The focused terminal's folder; a file tab or another panel keeps the last one.
+  // The focused terminal's folder; a file tab or a panel keeps the last one.
   folder() {
     const f = focused();
     if (f?.terminal) this.remote = f.terminal.includes("/");
@@ -114,7 +109,7 @@ export default class Stages extends View {
     this.load(cx, true);
   }
 
-  // Which repository, its index, and whether its documents have moved on since.
+  // The repository, its index, and whether its documents changed since.
   load(cx, moved = false) {
     const cwd = this.followed;
     if (!cwd) {
@@ -150,9 +145,8 @@ export default class Stages extends View {
     });
   }
 
-  // What changed in the documents since the index was made: commits to the tracked ones,
-  // contents of the others. A renamed tracked document is followed (the index's first line is
-  // rewritten); one that is gone is reported.
+  // Commits to the tracked documents and new contents of the untracked ones. A renamed
+  // tracked document is followed by rewriting the first line; a missing one is reported.
   async staleness(repo) {
     const { sources, commit } = this.index;
     let current = sources;
@@ -183,8 +177,7 @@ export default class Stages extends View {
     return commits || missing.length || changed.length ? { commits, missing, changed } : null;
   }
 
-  // A run is shared by every copy. One that a reload cut off is forgotten after the longest
-  // an agent may take.
+  // Shared by every copy; a run cut off by a reload expires after the agent's time limit.
   busy() {
     const at = this.repo && (shared(BUSY) ?? {})[this.repo.top];
     return Boolean(at) && Date.now() - at < AGENT_MS + 60000;
@@ -197,7 +190,7 @@ export default class Stages extends View {
     setShared(BUSY, busy);
   }
 
-  // update: from the changes since the index's commit; otherwise from the documents whole.
+  // update: from what changed, keeping the other lines; otherwise from the documents whole.
   generate(cx, update) {
     const repo = this.repo;
     if (!repo || this.busy()) return;
@@ -238,8 +231,7 @@ export default class Stages extends View {
         });
         if (r.code !== 0) throw new Error(r.stderr.trim().split("\n").slice(-3).join("\n") || `${program} exited with ${r.code}.`);
         const out = fromAgent(r.stdout);
-        // Only files and folders inside this repository's work tree can be a source; the
-        // agent's order is kept.
+        // Only paths inside this work tree are kept as sources.
         const kept = [];
         for (const s of out.sources) if ((await filesOf(repo.top, s)).length) kept.push(s);
         if (!kept.length && !out.none) throw new Error("The agent named no file of this repository as its source, so its answer wasn't saved.");
@@ -261,7 +253,7 @@ export default class Stages extends View {
     });
   }
 
-  // What a click opened or closed, per repository, over what shows open at first.
+  // Open or folded: what a click chose, else `first`.
   isOpen(key, first) {
     const open = this.opened.get(this.repo.top);
     return open?.has(key) ? open.get(key) : first;
@@ -273,7 +265,7 @@ export default class Stages extends View {
     cx.notify();
   }
 
-  // --- Drawing, in Files' look ---
+  // --- Drawing, in the Files panel's sizes and colours ---
 
   iconButton(t, id, icon, label, onClick) {
     return div()
@@ -322,17 +314,16 @@ export default class Stages extends View {
     return el.border_1().border_color(t.dim);
   }
 
-  // Roughly how tall a row draws, so the list can tell what fits: the name's line and the
-  // sentence wrapped at the panel's width (a CJK character about 11px wide, other text 6).
+  // A row's height, estimated to decide what fits: padding 6, name 20, 18 per wrapped line of
+  // the sentence (a CJK character about 11px wide, other text 6), as measured in the window.
   rowHeight(entry, depth) {
     const width = Math.max(80, (this.size?.width ?? 368) - 2 - 12 - (8 + depth * INDENT) - 8 - 34);
     let px = 0;
     for (const ch of entry.note ?? "") px += ch.charCodeAt(0) >= 0x2e80 ? 11 : 6;
-    // Measured in the window: 6 of padding, 20 for the name, 18 for each line of the sentence.
     return 6 + 20 + Math.ceil(px / width) * 18;
   }
 
-  // A folded group: its name and how many.
+  // A group's row: chevron, name, count.
   groupRow(t, group, open, depth = 0) {
     return h_flex()
       .id(group.key)
@@ -448,7 +439,6 @@ export default class Stages extends View {
       .rounded(10)
       .border_1()
       .border_color(t.border)
-      // How much the list shows depends on the room it has.
       .on_size_change((size, cx) => {
         if (size.width === this.size?.width && size.height === this.size?.height) return;
         this.size = size;
@@ -521,21 +511,20 @@ export default class Stages extends View {
             : "No document in this repository records its development stages. To use particular files, name them on the index's first line (pencil), then make it again.",
         ),
       );
-    // Done stages fold into one row, and so do those not started yet (open when nothing is in
-    // progress), set a little apart. The stages in progress show open: every unfinished step,
-    // and of the done ones only the latest that fit the panel; the earlier ones fold into a row.
+    // Done stages and stages not started fold into a row each (the latter open when nothing is
+    // in progress). A stage in progress shows every unfinished step and only the latest done
+    // steps the panel has room for; the earlier ones fold into a row.
     const stages = this.index.stages.map((stage, i) => ({ stage, i }));
     const done = stages.filter((s) => s.stage.status === "done");
     const todo = stages.filter((s) => s.stage.status === "todo");
     const doing = stages.filter((s) => s.stage.status === "doing");
     const plan = doing.map(({ stage, i }) => {
       const key = `stage:${stage.code ?? stage.name}`;
-      const first = stage.status === "doing";
-      const open = stage.steps.length ? this.isOpen(key, first) : null;
+      const open = stage.steps.length ? this.isOpen(key, true) : null;
       const all = open && this.isOpen(`earlier:${key}`, false);
-      return { stage, i, key, first, open, all, hidden: new Set() };
+      return { stage, i, key, open, all, hidden: new Set() };
     });
-    // What the panel has room for, after everything that always shows.
+    // The height left once the rows that always show are counted.
     let room = (this.size?.height ?? 800) - 2 - 42 - 12 - (stale && !this.busy() ? 52 : 0) - (done.length ? 26 : 0) - (todo.length ? 26 + GROUP_GAP : 0);
     for (const p of plan) {
       room -= this.rowHeight(p.stage, 0);
@@ -554,22 +543,11 @@ export default class Stages extends View {
       for (const { j } of finished.slice(0, finished.length - shown)) p.hidden.add(j);
       if (p.hidden.size) room -= 26;
     }
-    if (done.length) {
-      const group = { key: "group:done", label: "Done", count: done.length, first: false };
-      const open = this.isOpen(group.key, group.first);
-      list.child(this.groupRow(t, group, open, 0));
-      if (open)
-        for (const { stage, i } of done) {
-          const key = `stage:${stage.code ?? stage.name}`;
-          const shown = stage.steps.length ? this.isOpen(key, false) : null;
-          list.child(this.row(t, stage, `stage-${i}`, 0, shown, key, false));
-          if (shown) stage.steps.forEach((step, j) => list.child(this.row(t, step, `stage-${i}-${j}`, 1)));
-        }
-    }
+    if (done.length) this.groupRows(t, list, { key: "group:done", label: "Done", items: done, first: false });
     for (const p of plan) {
-      list.child(this.row(t, p.stage, `stage-${p.i}`, 0, p.open, p.key, p.first));
+      list.child(this.row(t, p.stage, `stage-${p.i}`, 0, p.open, p.key, true));
       if (!p.open) continue;
-      // Shown whole on request, with the row to fold them again.
+      // All done steps, once asked for, under a row that folds them again.
       const earlier = { key: `earlier:${p.key}`, label: "Earlier done", first: false };
       const finished = p.stage.steps.filter((step) => step.status === "done").length;
       if (p.all && finished > MIN_RECENT) list.child(this.groupRow(t, { ...earlier, count: finished }, true, 1));
@@ -583,18 +561,20 @@ export default class Stages extends View {
         list.child(this.row(t, step, `stage-${p.i}-${j}`, 1));
       });
     }
-    if (todo.length) {
-      const group = { key: "group:todo", label: "Not started", count: todo.length, first: !doing.length };
-      const open = this.isOpen(group.key, group.first);
-      list.child(this.groupRow(t, group, open, 0).when(doing.length > 0, (el) => el.mt(GROUP_GAP)));
-      if (open)
-        for (const { stage, i } of todo) {
-          const key = `stage:${stage.code ?? stage.name}`;
-          const shown = stage.steps.length ? this.isOpen(key, false) : null;
-          list.child(this.row(t, stage, `stage-${i}`, 0, shown, key, false));
-          if (shown) stage.steps.forEach((step, j) => list.child(this.row(t, step, `stage-${i}-${j}`, 1)));
-        }
-    }
+    if (todo.length) this.groupRows(t, list, { key: "group:todo", label: "Not started", items: todo, first: !doing.length, gap: doing.length > 0 });
     return root.child(list);
+  }
+
+  // A folded group of stages and, when open, its stages, each folded too.
+  groupRows(t, list, group) {
+    const open = this.isOpen(group.key, group.first);
+    list.child(this.groupRow(t, { ...group, count: group.items.length }, open, 0).when(Boolean(group.gap), (el) => el.mt(GROUP_GAP)));
+    if (!open) return;
+    for (const { stage, i } of group.items) {
+      const key = `stage:${stage.code ?? stage.name}`;
+      const shown = stage.steps.length ? this.isOpen(key, false) : null;
+      list.child(this.row(t, stage, `stage-${i}`, 0, shown, key, false));
+      if (shown) stage.steps.forEach((step, j) => list.child(this.row(t, step, `stage-${i}-${j}`, 1)));
+    }
   }
 }

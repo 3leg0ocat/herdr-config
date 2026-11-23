@@ -1,15 +1,13 @@
-// The stage index: a Markdown list an agent writes and a person may correct by hand.
+// The stage index, read and written only here: a Markdown list an agent writes and a person
+// may correct by hand. The first line names its sources and the commit it was made at.
 //
 //   <!-- source: docs/progress.md, docs/plan.md @ 1a2b3c4 -->
-//   - [x] P01 Name — one plain sentence
-//     - [~] M2 Name — one plain sentence
-//
-// The first line says which files it was made from, and at which commit; the rest is stages
-// and their steps. Its format is read and written here and nowhere else.
+//   - [x] P01 Name — what it delivered
+//     - [~] M2 Name — what it delivered
 
 const HEADER = /^<!--\s*source:\s*(.*?)\s*(?:@\s*([0-9a-f]{7,40}))?\s*-->$/;
 const ITEM = /^(\s*)[-*] \[([ xX~])\]\s+(.*)$/;
-// A project's own code: letters then a digit, such as P08R, M4a, Q1f, B3c.
+// A project's code: letters then a digit (P08R, M4a, Q1f).
 const CODE = /^[A-Za-z]{1,4}-?\d[\w.-]*$/;
 const NOTE = /\s+[—–]\s+/;
 
@@ -55,7 +53,7 @@ export function parseIndex(text) {
 
 export const headerLine = (sources, commit) => `<!-- source: ${sources.join(", ")}${commit ? ` @ ${commit}` : ""} -->`;
 
-// The same index with another first line: the files renamed, or a new commit after an update.
+// The index with a new first line.
 export function withHeader(text, sources, commit) {
   const lines = String(text).replace(/\r/g, "").split("\n");
   const at = lines.findIndex((line) => HEADER.test(line.trim()));
@@ -64,14 +62,14 @@ export function withHeader(text, sources, commit) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-// What an agent printed, from its header on, or an error that says what was missing.
+// The index in an agent's answer, from its first line on; throws if there is none.
 export function fromAgent(output) {
   const lines = String(output ?? "").replace(/\r/g, "").split("\n").filter((line) => !/^\s*```/.test(line));
   const at = lines.findIndex((line) => HEADER.test(line.trim()));
   if (at === -1) throw new Error("The agent's answer has no source line, so it wasn't saved.");
   const body = lines.slice(at).join("\n").trim();
   const index = parseIndex(body);
-  // The agent found no document that records stages.
+  // `<!-- source: none -->`: the project has no document that records stages.
   if (index.sources.length === 1 && index.sources[0].toLowerCase() === "none" && !index.stages.length) return { body: "", sources: [], none: true };
   if (!index.stages.length) throw new Error("The agent's answer lists no stages, so it wasn't saved.");
   if (!index.sources.length) throw new Error("The agent's answer names no source files, so it wasn't saved.");
