@@ -78,7 +78,7 @@ index 2bbd1de..0dbb752 100644
      },
      async append(context,text,parents) { return journal.put(journal.revision(context,text,parents)); },
 diff --git a/mods/sakwa/main.js b/mods/sakwa/main.js
-index 775bf93..e39db52 100644
+index 775bf93..71a1919 100644
 --- a/mods/sakwa/main.js
 +++ b/mods/sakwa/main.js
 @@ -1,5 +1,5 @@
@@ -89,7 +89,7 @@ index 775bf93..e39db52 100644
  import { spaces, machines, agents, terminals, focused, panes, theme, props, layout, run,
    hc, shared, setShared, nextCommand, notify } from 'herdr';
  import { contextFor, contextKey, contextStatus, validContext, recipients } from './context.js';
-@@ -11,12 +11,33 @@ import { openNote, sendNote } from './presentation.js';
+@@ -11,12 +11,37 @@ import { openNote, sendNote } from './presentation.js';
  import { returnNoteToSidebar } from './navigation.js';
  import { text, button, popover, row, contextGroup } from './ui.js';
  
@@ -102,6 +102,9 @@ index 775bf93..e39db52 100644
 +    const b=line.match(BULLET);return {i,done:false,text:b?b[1]:line.trim()};
 +  }).filter(Boolean);
 +}
++const ROW=30; // local: list row height
++// Local: the list with the item at `from` taken out and put back at `to`.
++function reorder(list,from,to){const o=list.slice(),[x]=o.splice(from,1);o.splice(to,0,x);return o;}
 +// Rough rendered width at 13px: wide (CJK) characters about 13px, others about 7px.
 +function textWidth(s){let w=0;for(const ch of s)w+=ch.codePointAt(0)>=0x2e80?13:7;return w;}
 +
@@ -114,6 +117,7 @@ index 775bf93..e39db52 100644
 +    this.bare=Boolean(initial?.bare); // local: flat, as a block in the sidebar
 +    try{this.mode=localStorage.getItem('sakwa.mode.v1')||'list';}catch{this.mode='list';}
 +    this.editId=null;this.hoverItem=null;
++    this.dropReset();this.quietId=null; // local: drag-to-reorder state
 +    this.lineIds=[];this.idsText=null;this.nextLineId=1;
 +    this.itemInput=InputState.new({placeholder:'New item…'});
 +    this.itemInput.on('submit',(_e,cx)=>this.submitItem(cx));
@@ -123,7 +127,7 @@ index 775bf93..e39db52 100644
      this.scope='tab';this.pinned=validContext(initial?.context)?initial.context:null;
      this.current=null;this.baseIds=[];this.loaded=false;this.busy=false;this.panel=null;
      this.journal=createJournal(fileAdapter());
-@@ -30,12 +51,8 @@ export default class Sakwa extends View {
+@@ -30,12 +55,8 @@ export default class Sakwa extends View {
      this.editor.on('focus',()=>{this.editing=true;});
      this.editor.on('blur',()=>{this.editing=false;});
      this.editor.on('change',(_e,cx)=>{
@@ -138,7 +142,7 @@ index 775bf93..e39db52 100644
      });
      try { this.book=createDraftBook(this.journal,localStorage,records=>this.recovery.save(records)); }
      catch(e) { this.fatal=e.message;this.notice(e.message,'error',true); }
-@@ -54,6 +71,140 @@ export default class Sakwa extends View {
+@@ -54,6 +75,206 @@ export default class Sakwa extends View {
      });
    }
  
@@ -170,6 +174,25 @@ index 775bf93..e39db52 100644
 +    const next=lines.join('\n');this.commit(next,cx);
 +    if(this.editor.value()===next){this.lineIds=ids;this.idsText=next;}
 +  }
++  // Local: put an item in another place in the list. Items take each other's lines; blank lines
++  // stay where they are.
++  moveItemTo(id,slot,cx) {
++    const items=this.listItems(),from=items.findIndex(x=>x.id===id);
++    if(from<0||slot===from||slot<0||slot>=items.length)return;
++    const order=reorder(items,from,slot),old=this.editor.value().split('\n'),lines=old.slice(),ids=this.lineIds.slice();
++    items.forEach((x,k)=>{lines[x.i]=old[order[k].i];ids[x.i]=order[k].id;});
++    const next=lines.join('\n');this.commit(next,cx);
++    if(this.editor.value()===next){this.lineIds=ids;this.idsText=next;}
++  }
++  // The item pressed; where the press was; where in the row it was held, and the list's top, both
++  // in window coordinates; where the row is drawn while dragged; and whether the pointer has moved
++  // far enough since the press for it to be a drag rather than a click.
++  dropReset() { this.dragId=null;this.dragFrom=null;this.grab=0;this.listTop=0;this.dragTop=0;this.dragging=false; }
++  endDrag(cx) {
++    if(this.dragId===null)return;
++    this.dropReset();cx.notify();
++  }
++  dragSlot(count) { return Math.max(0,Math.min(count-1,Math.round(this.dragTop/ROW))); }
 +  submitItem(cx) {
 +    const v=this.itemInput.value().trim();
 +    if(v){
@@ -210,7 +233,7 @@ index 775bf93..e39db52 100644
 +      .child(svg(`mods/sakwa/icons/${icon}.svg`).size(14));
 +  }
 +  setMode(mode,cx) {
-+    this.mode=mode;this.editId=null;
++    this.mode=mode;this.editId=null;this.dropReset();
 +    try{localStorage.setItem('sakwa.mode.v1',mode);}catch{/* View preference only. */}
 +    cx.notify();
 +  }
@@ -232,38 +255,82 @@ index 775bf93..e39db52 100644
 +  itemText(item,t) {
 +    if(this.editId===item.id)return Input.new(this.editInput).flex_1().min_w(0).h(26).text_size(13).text_color(t.foreground);
 +    const edit=(e,cx)=>{if(e.click_count===2)this.editItem(item,cx);};
-+    const label=div().id(`item-text-${item.i}`).flex_1().w_full().min_w(0).truncate().text_size(13)
++    const label=div().id(`item-text-${item.id}`).flex_1().w_full().min_w(0).truncate().text_size(13)
 +      .text_color(item.done?t.dim:t.foreground).when(item.done,e=>e.line_through())
 +      .child(item.text||' ');
 +    // Only text that may not fit gets a preview card; it wraps instead of one long line.
 +    const room=Math.max(80,(this.width||240)-80);
 +    if(textWidth(item.text)<=room)return label.on_mouse_down('left',edit);
++    // From a press until the pointer leaves the item after the drop, the card is there but empty:
++    // its open state is its own, and swapping it out mid-gesture would rebuild the row.
++    const quiet=this.dragId!==null||this.quietId===item.id;
 +    // The card's own element sizes to its trigger; the outer box bounds it so the label truncates
 +    // and the hover icons stay inside the row.
-+    return div().id(`item-box-${item.i}`).flex_1().min_w(0).overflow_hidden().on_mouse_down('left',edit).child(HoverCard.new(`item-card-${item.i}`).w_full().min_w(0)
++    return div().id(`item-box-${item.id}`).flex_1().min_w(0).overflow_hidden().on_mouse_down('left',edit).child(HoverCard.new(`item-card-${item.id}`).w_full().min_w(0)
 +      .anchor('top_left').open_delay(400)
 +      .trigger(label)
-+      .content(v_flex().w(Math.max(220,Math.min(320,(this.width||240)+40))).px(12).py(9).rounded(8)
++      .content(quiet?div():v_flex().w(Math.max(220,Math.min(320,(this.width||240)+40))).px(12).py(9).rounded(8)
 +        .border_1().border_color(t.border).bg(t.popover).shadow_md()
 +        .text_size(13).text_color(item.done?t.muted:t.foreground).whitespace_normal().child(item.text)));
 +  }
 +  itemList(ready) {
 +    const t=theme(),items=ready?this.listItems():[];
 +    const candidates=ready?recipients(this.current,agents(),terminals()):[];
-+    const rows=items.map(item=>h_flex().id(`item-${item.i}`).px(8).h(30).flex_none().rounded(8).items_center().gap(9)
-+      .when(this.editId===item.id,e=>e.px(7).bg(t.background).border_1().border_color(t.input)
-+        .on_mouse_down_out((_e,cx)=>this.finishEdit(cx)))
-+      .when(this.editId!==item.id,e=>e.hover(s=>s.bg(t.hover)))
-+      .on_hover((on,cx)=>{if(on)this.hoverItem=item.i;else if(this.hoverItem===item.i)this.hoverItem=null;cx.notify();})
-+      .child(div().id(`item-check-${item.i}`).size(14).flex_none().rounded(4).border_1().cursor_pointer()
-+        .flex().items_center().justify_center()
-+        .border_color(item.done?t.muted:t.dim).when(item.done,e=>e.bg(t.muted).text_color(t.chrome))
-+        .on_click((_e,cx)=>{cx.stop_propagation();this.toggleItem(item,cx);})
-+        .when(item.done,e=>e.child(svg('mods/sakwa/icons/check.svg').size(11))))
-+      .child(this.itemText(item,t))
-+      .when(this.hoverItem===item.i&&!item.done&&this.editId!==item.id,e=>e.child(this.headerIcon(`item-send-${item.i}`,'send',
-+        candidates.length?'Send this item':'No live agents in this note context',
-+        (_e,cx)=>{cx.stop_propagation();this.sendItem(item,cx);},!candidates.length||this.busy))));
++    // Local: drag an item to move it. It follows the pointer and the others slide aside to show
++    // where it will land; letting go puts it there, leaving the list cancels. Rows are placed by
++    // `top` so the slide is a native transition. While dragging, rows show no hover feedback.
++    const from=items.findIndex(x=>x.id===this.dragId),dragging=this.dragging&&from>=0;
++    const order=dragging?reorder(items,from,this.dragSlot(items.length)):items;
++    const rows=order.map((item,index)=>{
++      const lifted=dragging&&item.id===this.dragId,home=items.indexOf(item);
++      return h_flex().id(`item-${item.id}`).absolute().left(0).right(0).top(lifted?this.dragTop:index*ROW)
++        .px(8).h(ROW).rounded(8).items_center().gap(9)
++        .when(!lifted,e=>e.transition('top',{duration:150,easing:'ease-out'}))
++        .when(lifted,e=>e.px(7).bg(t.popover).border_1().border_color(t.border).shadow_md())
++        .when(this.editId===item.id,e=>e.px(7).bg(t.background).border_1().border_color(t.input)
++          .on_mouse_down_out((_e,cx)=>this.finishEdit(cx)))
++        .when(this.editId!==item.id&&!dragging,e=>e.hover(s=>s.bg(t.hover)))
++        .when(this.editId!==item.id,e=>e.on_mouse_down('left',(ev,cx)=>{
++          this.dropReset();this.dragId=item.id;this.dragFrom=ev?.position||null;
++          this.grab=ev?.local_position?.y??ROW/2;this.dragTop=home*ROW;
++          this.listTop=(ev?.position?.y??0)-this.grab-home*ROW;
++          cx?.notify();
++        }))
++        .on_hover((on,cx)=>{
++          if(on)this.hoverItem=item.id;else if(this.hoverItem===item.id)this.hoverItem=null;
++          if(!on&&this.quietId===item.id)this.quietId=null;
++          if(!this.dragging)cx.notify(); // rows sliding under a drag would redraw for nothing
++        })
++        .child(div().id(`item-check-${item.id}`).size(14).flex_none().rounded(4).border_1().cursor_pointer()
++          .flex().items_center().justify_center()
++          .border_color(item.done?t.muted:t.dim).when(item.done,e=>e.bg(t.muted).text_color(t.chrome))
++          .on_click((_e,cx)=>{cx.stop_propagation();this.toggleItem(item,cx);})
++          .when(item.done,e=>e.child(svg('mods/sakwa/icons/check.svg').size(11))))
++        .child(this.itemText(item,t))
++        .when(!dragging&&this.hoverItem===item.id&&!item.done&&this.editId!==item.id,e=>e.child(this.headerIcon(`item-send-${item.id}`,'send',
++          candidates.length?'Send this item':'No live agents in this note context',
++          (_e,cx)=>{cx.stop_propagation();this.sendItem(item,cx);},!candidates.length||this.busy)));
++    });
++    // The dragged row is drawn last, over the others.
++    if(dragging)rows.push(rows.splice(order.findIndex(x=>x.id===this.dragId),1)[0]);
++    const move=(ev,cx)=>{
++      if(this.dragId===null||from<0||!ev?.position)return;
++      let started=false;
++      if(!this.dragging){
++        const a=this.dragFrom,b=ev.position;
++        if(a&&Math.hypot(b.x-a.x,b.y-a.y)<4)return;
++        this.dragging=started=true;
++      }
++      const top=Math.max(0,Math.min((items.length-1)*ROW,ev.position.y-this.listTop-this.grab));
++      if(top===this.dragTop&&!started)return; // sideways only: nothing to redraw
++      this.dragTop=top;cx.notify();
++    };
++    const drop=(_e,cx)=>{
++      const id=this.dragId,moved=this.dragging,slot=moved?this.dragSlot(items.length):-1;
++      this.dropReset();
++      if(id!==null&&moved){this.quietId=id;this.moveItemTo(id,slot,cx);}
++      cx.notify();
++    };
 +    const add=h_flex().id('item-add').mx(8).mt(4).pl(10).pr(4).h(30).flex_none().rounded(7).items_center().gap(6)
 +      .border_1().border_color(t.border).bg(t.chrome)
 +      .child(Input.new(this.itemInput).flex_1().min_w(0).h(28).text_size(13).text_color(t.foreground))
@@ -273,21 +340,24 @@ index 775bf93..e39db52 100644
 +        .on_click((_e,cx)=>this.submitItem(cx))
 +        .child(svg('mods/sakwa/icons/plus.svg').size(14)));
 +    return v_flex().id('note-items').flex_1().min_h(0).min_w(0)
-+      .child(v_flex().flex_1().min_h(0).min_w(0).overflow_y_scrollbar().children(rows))
++      .child(v_flex().id('item-rows').flex_1().min_h(0).min_w(0).overflow_y_scrollbar()
++        .on_mouse_move(move).on_mouse_up('left',drop)
++        .on_hover((on,cx)=>{if(!on)this.endDrag(cx);})
++        .child(div().id('item-stack').relative().flex_none().w_full().h(items.length*ROW).children(rows)))
 +      .when(ready,e=>e.child(add));
 +  }
    desired() { return this.pinned || contextFor(this.scope,focused(),spaces()); }
    note(key) { return this.journal.notes().find(n=>n.key===key); }
    setText(value) {
-@@ -71,6 +222,7 @@ export default class Sakwa extends View {
+@@ -71,6 +292,7 @@ export default class Sakwa extends View {
      const next=this.desired();
      if(!next){this.current=null;this.setText('');return;}
      const key=contextKey(next),changed=!this.current || contextKey(this.current)!==key;
-+    if(changed)this.editId=null;
++    if(changed){this.editId=null;this.dropReset();}
      const note=this.note(key),draft=this.book?.get(key);
      const ids=draft?[draft.id]:(note?.heads.map(h=>h.id)||[]);
      const signature=JSON.stringify(ids.slice().sort());
-@@ -190,7 +342,7 @@ export default class Sakwa extends View {
+@@ -190,7 +412,7 @@ export default class Sakwa extends View {
    }
    send(address,cx) {
      if(this.busy || !this.current)return;
@@ -296,7 +366,7 @@ index 775bf93..e39db52 100644
      this.busy=true;this.panel=null;this.message=null;
      this.work(cx,async()=>{
        try {
-@@ -203,6 +355,7 @@ export default class Sakwa extends View {
+@@ -203,6 +425,7 @@ export default class Sakwa extends View {
      });
    }
    sendClick(cx) {
@@ -304,7 +374,7 @@ index 775bf93..e39db52 100644
      const candidates=recipients(this.current,agents(),terminals());
      if(candidates.length===1)this.send(candidates[0].address,cx);
      else {this.panel='recipients';cx.notify();}
-@@ -249,28 +402,43 @@ export default class Sakwa extends View {
+@@ -249,28 +472,43 @@ export default class Sakwa extends View {
      const labels=(this.width||0)>=460;
      const frame=v_flex().id('sakwa-root').size_full().min_h(0).min_w(0)
        .on_size_change((size,cx)=>{if(this.width!==size.width){this.width=size.width;cx.notify();}})
