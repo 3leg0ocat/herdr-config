@@ -78,7 +78,7 @@ index 2bbd1de..0dbb752 100644
      },
      async append(context,text,parents) { return journal.put(journal.revision(context,text,parents)); },
 diff --git a/mods/sakwa/main.js b/mods/sakwa/main.js
-index 775bf93..71a1919 100644
+index 775bf93..a3f8919 100644
 --- a/mods/sakwa/main.js
 +++ b/mods/sakwa/main.js
 @@ -1,5 +1,5 @@
@@ -117,7 +117,7 @@ index 775bf93..71a1919 100644
 +    this.bare=Boolean(initial?.bare); // local: flat, as a block in the sidebar
 +    try{this.mode=localStorage.getItem('sakwa.mode.v1')||'list';}catch{this.mode='list';}
 +    this.editId=null;this.hoverItem=null;
-+    this.dropReset();this.quietId=null; // local: drag-to-reorder state
++    this.dropReset();this.quietId=null;this.controlPress=false; // local: drag-to-reorder state
 +    this.lineIds=[];this.idsText=null;this.nextLineId=1;
 +    this.itemInput=InputState.new({placeholder:'New item…'});
 +    this.itemInput.on('submit',(_e,cx)=>this.submitItem(cx));
@@ -142,7 +142,7 @@ index 775bf93..71a1919 100644
      });
      try { this.book=createDraftBook(this.journal,localStorage,records=>this.recovery.save(records)); }
      catch(e) { this.fatal=e.message;this.notice(e.message,'error',true); }
-@@ -54,6 +75,206 @@ export default class Sakwa extends View {
+@@ -54,6 +75,218 @@ export default class Sakwa extends View {
      });
    }
  
@@ -176,10 +176,12 @@ index 775bf93..71a1919 100644
 +  }
 +  // Local: put an item in another place in the list. Items take each other's lines; blank lines
 +  // stay where they are.
-+  moveItemTo(id,slot,cx) {
++  // `line`, if given, replaces the item's own line in the same save.
++  moveItemTo(id,slot,cx,line=null) {
 +    const items=this.listItems(),from=items.findIndex(x=>x.id===id);
-+    if(from<0||slot===from||slot<0||slot>=items.length)return;
++    if(from<0||slot<0||slot>=items.length||slot===from&&line===null)return;
 +    const order=reorder(items,from,slot),old=this.editor.value().split('\n'),lines=old.slice(),ids=this.lineIds.slice();
++    if(line!==null)old[items[from].i]=line;
 +    items.forEach((x,k)=>{lines[x.i]=old[order[k].i];ids[x.i]=order[k].id;});
 +    const next=lines.join('\n');this.commit(next,cx);
 +    if(this.editor.value()===next){this.lineIds=ids;this.idsText=next;}
@@ -215,9 +217,13 @@ index 775bf93..71a1919 100644
 +    if(cx.timer?.after)cx.timer.after(30,()=>{if(this.editId===current.id)this.editInput.focus();});
 +    else this.editInput.focus();
 +  }
++  // Local: checking an item moves it to the bottom; unchecking moves it to the end of the
++  // unchecked ones, above the checked.
 +  toggleItem(item,cx) {
-+    const current=this.listItems().find(x=>x.id===item.id);if(!current)return;
-+    this.setLine(current.id,`- [${current.done?' ':'x'}] ${current.text}`,cx);
++    const items=this.listItems(),current=items.find(x=>x.id===item.id);if(!current)return;
++    const others=items.filter(x=>x.id!==current.id),firstDone=others.findIndex(x=>x.done);
++    const slot=current.done&&firstDone>=0?firstDone:others.length;
++    this.moveItemTo(current.id,slot,cx,`- [${current.done?' ':'x'}] ${current.text}`);
 +  }
 +  finishEdit(cx) {
 +    if(this.editId===null)return;
@@ -290,12 +296,16 @@ index 775bf93..71a1919 100644
 +        .when(this.editId===item.id,e=>e.px(7).bg(t.background).border_1().border_color(t.input)
 +          .on_mouse_down_out((_e,cx)=>this.finishEdit(cx)))
 +        .when(this.editId!==item.id&&!dragging,e=>e.hover(s=>s.bg(t.hover)))
-+        .when(this.editId!==item.id,e=>e.on_mouse_down('left',(ev,cx)=>{
++        .on_mouse_down('left',(ev,cx)=>{
++          // A press on the check box or the send icon is theirs: it never starts a drag. Nor does
++          // the row being edited.
++          const control=this.controlPress;this.controlPress=false;
++          if(control||this.editId===item.id)return;
 +          this.dropReset();this.dragId=item.id;this.dragFrom=ev?.position||null;
 +          this.grab=ev?.local_position?.y??ROW/2;this.dragTop=home*ROW;
 +          this.listTop=(ev?.position?.y??0)-this.grab-home*ROW;
 +          cx?.notify();
-+        }))
++        })
 +        .on_hover((on,cx)=>{
 +          if(on)this.hoverItem=item.id;else if(this.hoverItem===item.id)this.hoverItem=null;
 +          if(!on&&this.quietId===item.id)this.quietId=null;
@@ -304,12 +314,14 @@ index 775bf93..71a1919 100644
 +        .child(div().id(`item-check-${item.id}`).size(14).flex_none().rounded(4).border_1().cursor_pointer()
 +          .flex().items_center().justify_center()
 +          .border_color(item.done?t.muted:t.dim).when(item.done,e=>e.bg(t.muted).text_color(t.chrome))
++          .on_mouse_down('left',()=>{this.controlPress=true;})
 +          .on_click((_e,cx)=>{cx.stop_propagation();this.toggleItem(item,cx);})
 +          .when(item.done,e=>e.child(svg('mods/sakwa/icons/check.svg').size(11))))
 +        .child(this.itemText(item,t))
 +        .when(!dragging&&this.hoverItem===item.id&&!item.done&&this.editId!==item.id,e=>e.child(this.headerIcon(`item-send-${item.id}`,'send',
 +          candidates.length?'Send this item':'No live agents in this note context',
-+          (_e,cx)=>{cx.stop_propagation();this.sendItem(item,cx);},!candidates.length||this.busy)));
++          (_e,cx)=>{cx.stop_propagation();this.sendItem(item,cx);},!candidates.length||this.busy)
++          .on_mouse_down('left',()=>{this.controlPress=true;})));
 +    });
 +    // The dragged row is drawn last, over the others.
 +    if(dragging)rows.push(rows.splice(order.findIndex(x=>x.id===this.dragId),1)[0]);
@@ -349,7 +361,7 @@ index 775bf93..71a1919 100644
    desired() { return this.pinned || contextFor(this.scope,focused(),spaces()); }
    note(key) { return this.journal.notes().find(n=>n.key===key); }
    setText(value) {
-@@ -71,6 +292,7 @@ export default class Sakwa extends View {
+@@ -71,6 +304,7 @@ export default class Sakwa extends View {
      const next=this.desired();
      if(!next){this.current=null;this.setText('');return;}
      const key=contextKey(next),changed=!this.current || contextKey(this.current)!==key;
@@ -357,7 +369,7 @@ index 775bf93..71a1919 100644
      const note=this.note(key),draft=this.book?.get(key);
      const ids=draft?[draft.id]:(note?.heads.map(h=>h.id)||[]);
      const signature=JSON.stringify(ids.slice().sort());
-@@ -190,7 +412,7 @@ export default class Sakwa extends View {
+@@ -190,7 +424,7 @@ export default class Sakwa extends View {
    }
    send(address,cx) {
      if(this.busy || !this.current)return;
@@ -366,7 +378,7 @@ index 775bf93..71a1919 100644
      this.busy=true;this.panel=null;this.message=null;
      this.work(cx,async()=>{
        try {
-@@ -203,6 +425,7 @@ export default class Sakwa extends View {
+@@ -203,6 +437,7 @@ export default class Sakwa extends View {
      });
    }
    sendClick(cx) {
@@ -374,7 +386,7 @@ index 775bf93..71a1919 100644
      const candidates=recipients(this.current,agents(),terminals());
      if(candidates.length===1)this.send(candidates[0].address,cx);
      else {this.panel='recipients';cx.notify();}
-@@ -249,28 +472,43 @@ export default class Sakwa extends View {
+@@ -249,28 +484,43 @@ export default class Sakwa extends View {
      const labels=(this.width||0)>=460;
      const frame=v_flex().id('sakwa-root').size_full().min_h(0).min_w(0)
        .on_size_change((size,cx)=>{if(this.width!==size.width){this.width=size.width;cx.notify();}})

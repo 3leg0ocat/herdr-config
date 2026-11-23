@@ -65,7 +65,8 @@ installs everything else from its upstream repository at a pinned commit.
   (`"bare": true` in the layout; Send, All notes and the view switch become header icons), and
   no automatic right-hand dock. It also shows a note as a list: one item per line, stored as
   Markdown `- [ ]` / `- [x]`. Type in the box at the bottom and press Enter or + to add; tick
-  the box to check; double-click an item to edit it in place (Enter, or a click anywhere else,
+  the box to check (a checked item moves to the bottom; unchecked, it goes back above the checked
+  ones); double-click an item to edit it in place (Enter, or a click anywhere else,
   saves; saving it empty deletes the item); drag an item to move it (it follows the pointer and the
   others slide aside; leaving the list cancels). Hovering an unchecked item shows a send
   icon that sends that item alone, to the same agents the whole note would go to (checked
