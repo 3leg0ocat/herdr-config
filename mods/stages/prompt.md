@@ -1,69 +1,55 @@
-You are building a stage index for the project in the current folder: a short list of its
-development stages and the steps inside each, so that a person who sees a code such as "M2"
-or "B3c" can tell what it was and whether it is done. Read only; change nothing.
+Build a stage index for the project in the current folder: its development stages and the
+steps of each, so that someone who meets a code such as "M2" in its documents can tell what
+it was and whether it is done. Read only; change nothing.
 
-## Where to look
+## Find the documents
 
-The project records its stages in its own documents, in its own way: a progress log, a plan,
-a roadmap, a status table, a worklog, one file per milestone; in any language, under any
-name. Unless you are told which files to use, find them: by name (`git ls-files | grep -iE
-'progress|plan|roadmap|status|milestone|todo|log|进度|计划'`) and by content (`git grep -liE
-'milestone|phase|sprint|里程碑|阶段' -- '*.md' '*.txt'`), and in folders Git doesn't track or ignores,
-such as a scratch or notes folder (`git status --short --ignored`), then the headings of what
-you find. They may be very large. Never read a large file whole: list its headings
-first (`grep -n '^#'`), then read only the parts that name stages and steps, such as a
-status table or a table of milestones, and search for a code when you need to know what
-became of it.
+Projects record their stages their own way: a progress log, a plan, a roadmap, a status
+table, a worklog, one file per milestone; under any name, in any language, sometimes in a
+folder Git doesn't track or ignores. Look by file name, by content (words for milestone,
+phase or stage, in the project's languages) and in such folders (`git status --short
+--ignored`). Files may be very large: never read one whole. List its headings, read only the
+parts about stages and steps, and search for a code to see what became of it.
 
-## What to write
+## Write the index
 
-Print the index as your final answer and nothing else (no preamble, no code fence). Write
-no files. The format is fixed:
+Your final answer is the index alone, with no preamble and no code fence, in this format:
 
 ```
 <!-- source: path/one.md, path/two.md -->
-- [x] CODE Name — one plain sentence
-  - [x] CODE Name — one plain sentence
-  - [~] CODE Name — one plain sentence
-- [ ] CODE Name — one plain sentence
+- [x] CODE Name — what it delivered
+  - [~] CODE Name — what it delivered
+- [ ] Name — what it delivered
 ```
 
-- The first line names the files you used, as paths from the top of the repository; a
-  folder of many such files may be named instead, ending in `/`.
-- Two levels only: stages, and the steps of each stage. A step is the largest unit the
-  project splits a stage into (a milestone, say), never the tasks inside it. A stage that
-  is only split into a task list (T1, T2, ...) gets no steps. Steps may be defined in a
-  table, in prose, or only where a later log entry starts, as a heading or as a bold label
-  at the start of a list item (`- **Q1c ...**`); look for all of these. The same code (M1,
-  M4) is often reused in many stages: only take a step's facts from the part of the
-  documents about its own stage. Keep the project's own order.
-- `[x]` done, `[~]` in progress, `[ ]` not started. Take it from the latest entries the
-  documents have about it. Done: they say it was finished, accepted, deployed or verified,
-  even if it was reworked first. In progress: started, or its work is written but they say
-  it still waits for a review, deployment or confirmation. A step whose stage is done is
-  done unless they say otherwise.
-- CODE is the project's own code, exactly as written (P08R, M4a, Q1f). A stage or step with
-  no code gets none: start with the name.
-- Name: the project's own short name for it, in the documents' language, without " — "
-  (write "Phase 1: Foundations").
-- The sentence: in the documents' language, about 25–50 characters (Chinese) or 12–25
-  words. State concretely what it delivered or settled: which feature, on which object, with
-  what rule or result, as a design or status document would put it. Written register: no
-  colloquial phrases, filler or second person (not 能…了、跟着变、不出错、弄清、搞定; not
-  "now you can", "works fine"). Use the project's own domain terms; leave out code
-  identifiers (file, function, table names, migration or commit numbers). It must add
-  something the name doesn't: never restate the name in other words. For example, not
-  "结案或重开后会话状态跟着变，不出错" but "问答线程不再随结案、合并或提示词版本变化而关闭，可继续追问".
-  A stage not started yet takes its sentence from what the plan says it will deliver.
-  Leave it out (no dash) if the documents don't make it clear; never guess.
-- Only stages and their steps. Leave out decisions, review findings, acceptance criteria,
-  test items and dated notes, even when they have codes.
-- If no document of the project records its development stages (a changelog of releases,
-  design notes or an issue list are not one), print only `<!-- source: none -->`.
+- First line: the files used, as paths from the repository's top; a folder may be named
+  instead, ending in `/`.
+- Two levels: stages, and the steps of each. A step is the largest unit a stage is divided
+  into, not the tasks inside it; a stage divided only into tasks gets no steps. Steps may be
+  defined in a table, in prose, or only by later log entries (in their headings, or a bold
+  label at the start of an item). Codes are often reused across stages: take each step's
+  facts from its own stage's part of the documents. A project may keep several plans side by
+  side: include each one still in use, not one the documents show was dropped or replaced.
+- Status: `[x]` done (finished, accepted, deployed or verified, even after rework), `[~]` in
+  progress (started, or waiting for a review, deployment or confirmation), `[ ]` not
+  started. Go by the newest entries. A done stage's steps are done unless the documents say
+  otherwise.
+- CODE exactly as the project writes it, and none if it has none. Name: the project's own
+  short name, without " — ".
+- After the dash, one sentence in the documents' language, 15–30 words (or 25–50 characters
+  in a language written without spaces): what it delivered or settled, concretely (which
+  feature, for what, with what rule or result), in the written register of a status report.
+  Use the project's domain terms, not code identifiers (file, function or table names,
+  commit numbers). Say what the name and the status don't. For a stage not started, say
+  what the plan says it will deliver. If the documents don't make it clear, leave the
+  sentence out rather than guess.
+- Leave out decisions, review findings, acceptance criteria, tests and dated notes, even
+  when they have codes.
+- If no document records development stages (a changelog, design notes or an issue list
+  doesn't), print only `<!-- source: none -->`.
 
-## Before you answer
+## Before answering
 
-Check your list against the documents once: for each stage, search its part of the
-documents for the codes its steps use (by their pattern, such as `M[0-9]` or `Q1[a-z]`,
-in tables, prose and headings alike) and add any step you missed. Then check the status of
-the last few steps of the stage in progress against the newest entries about them.
+For each stage, search its part of the documents for codes built like those of its steps
+(the same letters with other numbers or suffixes), and add any step you missed. Check the
+status of the latest steps against the newest entries.
