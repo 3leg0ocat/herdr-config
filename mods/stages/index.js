@@ -17,7 +17,11 @@ const STATUS = { " ": "todo", x: "done", X: "done", "~": "doing" };
 
 function item(match) {
   const [, indent, mark, rest] = match;
-  const [title, ...note] = rest.split(NOTE);
+  // The sentence follows the last dash, so a name may hold one ("Phase 1 — Foundations").
+  const cuts = [...rest.matchAll(new RegExp(NOTE, "g"))];
+  const cut = cuts.at(-1);
+  const title = cut ? rest.slice(0, cut.index) : rest;
+  const note = cut ? [rest.slice(cut.index + cut[0].length)] : [];
   const [first, ...words] = title.trim().split(/\s+/);
   const coded = CODE.test(first) && words.length > 0;
   return {
@@ -67,6 +71,8 @@ export function fromAgent(output) {
   if (at === -1) throw new Error("The agent's answer has no source line, so it wasn't saved.");
   const body = lines.slice(at).join("\n").trim();
   const index = parseIndex(body);
+  // The agent found no document that records stages.
+  if (index.sources.length === 1 && index.sources[0].toLowerCase() === "none" && !index.stages.length) return { body: "", sources: [], none: true };
   if (!index.stages.length) throw new Error("The agent's answer lists no stages, so it wasn't saved.");
   if (!index.sources.length) throw new Error("The agent's answer names no source files, so it wasn't saved.");
   return { body, sources: index.sources };

@@ -5,9 +5,12 @@ or "B3c" can tell what it was and whether it is done. Read only; change nothing.
 ## Where to look
 
 The project records its stages in its own documents, in its own way: a progress log, a plan,
-a roadmap, a status table. Unless you are told which files to use, find them (for example
-`git ls-files | grep -iE 'progress|plan|roadmap|status|milestone'`, then the headings of
-what you find). They may be very large. Never read a large file whole: list its headings
+a roadmap, a status table, a worklog, one file per milestone; in any language, under any
+name. Unless you are told which files to use, find them: by name (`git ls-files | grep -iE
+'progress|plan|roadmap|status|milestone|todo|log|进度|计划'`) and by content (`git grep -liE
+'milestone|phase|sprint|里程碑|阶段' -- '*.md' '*.txt'`), and in folders Git doesn't track or ignores,
+such as a scratch or notes folder (`git status --short --ignored`), then the headings of what
+you find. They may be very large. Never read a large file whole: list its headings
 first (`grep -n '^#'`), then read only the parts that name stages and steps, such as a
 status table or a table of milestones, and search for a code when you need to know what
 became of it.
@@ -25,7 +28,8 @@ no files. The format is fixed:
 - [ ] CODE Name — one plain sentence
 ```
 
-- The first line names the files you used, as paths from the top of the repository.
+- The first line names the files you used, as paths from the top of the repository; a
+  folder of many such files may be named instead, ending in `/`.
 - Two levels only: stages, and the steps of each stage. A step is the largest unit the
   project splits a stage into (a milestone, say), never the tasks inside it. A stage that
   is only split into a task list (T1, T2, ...) gets no steps. Steps may be defined in a
@@ -40,15 +44,22 @@ no files. The format is fixed:
   done unless they say otherwise.
 - CODE is the project's own code, exactly as written (P08R, M4a, Q1f). A stage or step with
   no code gets none: start with the name.
-- Name: the project's own short name for it, in the documents' language.
-- The sentence: in the documents' language, at most about 30 characters (Chinese) or 15
-  words, saying what the project can do or has after it, in plain words a newcomer
-  understands. It must tell something the name doesn't: never restate the name in other
-  words. No file, function or table names, and no engineering jargon such as contract,
-  schema, pure function, migration (契约、形状、纯函数、迁移、落库); say what it is about
-  instead. Leave it out (no dash) if the documents don't make it clear; never guess.
+- Name: the project's own short name for it, in the documents' language, without " — "
+  (write "Phase 1: Foundations").
+- The sentence: in the documents' language, about 25–50 characters (Chinese) or 12–25
+  words. State concretely what it delivered or settled: which feature, on which object, with
+  what rule or result, as a design or status document would put it. Written register: no
+  colloquial phrases, filler or second person (not 能…了、跟着变、不出错、弄清、搞定; not
+  "now you can", "works fine"). Use the project's own domain terms; leave out code
+  identifiers (file, function, table names, migration or commit numbers). It must add
+  something the name doesn't: never restate the name in other words. For example, not
+  "结案或重开后会话状态跟着变，不出错" but "问答线程不再随结案、合并或提示词版本变化而关闭，可继续追问".
+  A stage not started yet takes its sentence from what the plan says it will deliver.
+  Leave it out (no dash) if the documents don't make it clear; never guess.
 - Only stages and their steps. Leave out decisions, review findings, acceptance criteria,
   test items and dated notes, even when they have codes.
+- If no document of the project records its development stages (a changelog of releases,
+  design notes or an issue list are not one), print only `<!-- source: none -->`.
 
 ## Before you answer
 

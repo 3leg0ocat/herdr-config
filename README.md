@@ -27,15 +27,19 @@ installs everything else from its upstream repository at a pinned commit.
 
 - `layouts/workbench.json`, `layouts/workbench.svg`: the layout and its preview in Settings.
 - `mods/stages`: the development stages of the focused terminal's repository and the steps in
-  each (such as P08R and its Q1f, R4b), each with a status dot and one plain sentence, so a
-  code in a progress log says what it was. Projects write their progress in their own way,
-  so the list isn't parsed from it: an agent reads the documents and writes an index
-  (`prompt.md` says how), kept as `herdr-board.md` in the repository's `.git` folder: never
-  committed, shared by its worktrees, gone with the clone. Its first line names the documents
-  and the commit it was made at; edit it to choose other documents (files the repository
-  tracks only). When those documents have new commits, the panel offers Update, which reads
-  only the changes and keeps every other line, hand corrections included; a renamed document
-  is followed. The pencil opens the index to correct by hand, the sparkles make it again.
+  each (such as P08R and its Q1f, R4b), each with a status dot and a sentence on what it
+  delivered, so a code in a progress log says what it was. The stages in progress show open;
+  the done ones and those not started are folded into a row each. Projects write their
+  progress in their own way (a progress log, a roadmap with checkboxes, a dated worklog, one
+  file per milestone, notes in a folder Git ignores), so the list isn't parsed from it: an
+  agent reads the documents and writes an index (`prompt.md` says how), kept as
+  `herdr-board.md` in the repository's `.git` folder: never committed, shared by its
+  worktrees, gone with the clone. A repository with no such documents (only a changelog, say)
+  gets an empty index that says so. The index's first line names the documents and the
+  commit it was made at; edit it to choose other documents or folders inside the repository,
+  tracked or not. When the tracked ones have new commits, or the untracked ones new contents,
+  the panel offers Update, which reads only what changed and keeps every other line, hand
+  corrections included; a renamed tracked document is followed. The pencil opens the index to correct by hand, the sparkles make it again.
   `stages.generate`, `stages.update` and `stages.refresh` can be bound to keys. The agent is
   `pi -p` with only its read and bash tools and no project instructions; set `settings.model`
   in `mods/stages/mod.json` (for example a fast, cheap model), or `settings.command` for
@@ -117,10 +121,11 @@ Mods are unsandboxed code. Before installing, know that:
   note's older snapshot files there) and can send a note to an agent (`hc`).
 - The Automations panel runs the `herdr-automations` CLI; the scheduler starts agents on the
   schedules you write and creates worktrees for them.
-- Stages runs `git` in the focused terminal's repository every 30 seconds, and writes two
+- Stages runs `git` in the focused terminal's repository every 30 seconds, and writes three
   files in its `.git` folder. Only when you press Generate or Update does it start an agent
   (`pi`, using the model you set), which reads the repository's documents and costs tokens;
-  a first index of a large project took about 2–3 minutes, an update under a minute.
+  a first index of a large project took about 3–5 minutes, a small one under a minute, an
+  update under a minute.
 
 ## License
 

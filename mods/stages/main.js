@@ -13,6 +13,7 @@ import { fromAgent, parseIndex, withHeader } from "./index.js";
 
 const FILE = "herdr-board.md";
 const REQUEST = "herdr-board.request.md";
+const LOOSE = "herdr-board.loose.json";
 const BUSY = "stages.busy";
 const FOLLOW_MS = 500;
 const CHECK_MS = 30000;
@@ -26,6 +27,25 @@ async function git(cwd, args) {
   const r = await exec("git", ["--no-optional-locks", "-c", "core.quotepath=off", ...args], { cwd });
   if (r.code !== 0) throw new Error(r.stderr.trim() || `git ${args[0]} failed.`);
   return r.stdout;
+}
+
+// The files a source (a file or a folder) names inside the work tree, tracked or not, ignored
+// ones included: a project may keep its plans in a folder Git ignores. Nothing outside it.
+async function filesOf(top, source) {
+  const r = await exec("git", ["--no-optional-locks", "-c", "core.quotepath=off", "ls-files", "-co", "-z", "--", source], { cwd: top });
+  return r.code === 0 ? r.stdout.split("\0").filter(Boolean) : [];
+}
+
+// What the sources' files that Git doesn't track hold now, by path: commits can't say when
+// they change, so their contents are compared.
+async function looseHashes(top, sources) {
+  const files = [...new Set((await Promise.all(sources.map((s) => filesOf(top, s)))).flat())];
+  if (!files.length) return {};
+  const tracked = new Set((await git(top, ["ls-files", "-c", "-z", "--", ...files])).split("\0").filter(Boolean));
+  const loose = files.filter((f) => !tracked.has(f));
+  if (!loose.length) return {};
+  const hashes = (await git(top, ["hash-object", "--", ...loose])).trim().split(/\s+/);
+  return Object.fromEntries(loose.map((f, i) => [f, hashes[i]]));
 }
 
 // pi, read-only tools, no project instructions: the agent only reads and prints.
@@ -110,7 +130,7 @@ export default class Stages extends View {
           this.text = text;
           this.index = text ? parseIndex(text) : null;
         }
-        this.stale = this.index?.commit ? await this.staleness(repo) : null;
+        this.stale = this.index?.sources.length ? await this.staleness(repo) : null;
       } catch (e) {
         if (this.followed !== cwd) return;
         this.repo = null;
@@ -124,36 +144,37 @@ export default class Stages extends View {
     });
   }
 
-  // Commits to the documents since the index was made. A renamed document is followed (the
-  // index's first line is rewritten); a deleted one is reported.
+  // What changed in the documents since the index was made: commits to the tracked ones,
+  // contents of the others. A renamed tracked document is followed (the index's first line is
+  // rewritten); one that is gone is reported.
   async staleness(repo) {
     const { sources, commit } = this.index;
-    const known = await exec("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: repo.top });
-    if (known.code !== 0) return { unknown: true };
-    const changes = (await git(repo.top, ["diff", "--name-status", "-z", "-M", "--diff-filter=RD", commit, "HEAD"])).split("\0");
-    const renamed = new Map();
-    const deleted = new Set();
-    for (let i = 0; i < changes.length; ) {
-      const kind = changes[i];
-      if (kind?.startsWith("R")) {
-        renamed.set(changes[i + 1], changes[i + 2]);
-        i += 3;
-      } else if (kind === "D") {
-        deleted.add(changes[i + 1]);
-        i += 2;
-      } else i += 1;
+    let current = sources;
+    let commits = 0;
+    if (commit) {
+      const known = await exec("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: repo.top });
+      if (known.code !== 0) return { unknown: true };
+      const changes = (await git(repo.top, ["diff", "--name-status", "-z", "-M", "--diff-filter=R", commit, "HEAD"])).split("\0");
+      const renamed = new Map();
+      for (let i = 0; i < changes.length; i += 3) if (changes[i]?.startsWith("R")) renamed.set(changes[i + 1], changes[i + 2]);
+      current = sources.map((s) => renamed.get(s) ?? s);
+      if (sources.some((s) => renamed.has(s))) {
+        const text = withHeader(this.text, current, commit);
+        await writeTextFile(repo.file, text, this.text);
+        this.text = text;
+        this.index = parseIndex(text);
+      }
+      commits = Number((await git(repo.top, ["rev-list", "--count", `${commit}..HEAD`, "--", ...current])).trim());
     }
-    const sources2 = sources.map((s) => renamed.get(s) ?? s);
-    if (sources.some((s) => renamed.has(s))) {
-      const text = withHeader(this.text, sources2, commit);
-      await writeTextFile(repo.file, text, this.text);
-      this.text = text;
-      this.index = parseIndex(text);
-    }
-    const missing = sources2.filter((s) => deleted.has(s));
-    const live = sources2.filter((s) => !deleted.has(s));
-    const commits = live.length ? Number((await git(repo.top, ["rev-list", "--count", `${commit}..HEAD`, "--", ...live])).trim()) : 0;
-    return commits || missing.length ? { commits, missing } : null;
+    const missing = [];
+    for (const s of current) if (!(await filesOf(repo.top, s)).length) missing.push(s);
+    let saved = {};
+    try {
+      saved = JSON.parse((await readTextFile(`${repo.common}/${LOOSE}`)) ?? "{}");
+    } catch {}
+    const now = await looseHashes(repo.top, current);
+    const changed = [...new Set([...Object.keys(saved), ...Object.keys(now)])].filter((f) => saved[f] !== now[f] && now[f]);
+    return commits || missing.length || changed.length ? { commits, missing, changed } : null;
   }
 
   // A run is shared by every copy. One that a reload cut off is forgotten after the longest
@@ -175,6 +196,7 @@ export default class Stages extends View {
     const repo = this.repo;
     if (!repo || this.busy()) return;
     const old = update ? this.index : null;
+    const stale = this.stale;
     const text = this.text;
     this.error = null;
     this.setBusy(repo.top, true);
@@ -187,13 +209,19 @@ export default class Stages extends View {
         if (sources.length) request += `\n## The files to use\n\nUse these files and no others: ${sources.join(", ")}.\n`;
         if (old) {
           const files = sources.map((s) => `'${s}'`).join(" ");
+          const read = [];
+          if (old.commit && stale?.commits)
+            read.push(
+              `the commits since ${old.commit} (\`git log --oneline ${old.commit}..HEAD -- ${files}\`, then ` +
+                `\`git diff ${old.commit} HEAD -- ${files}\`), not the whole files`,
+            );
+          if (stale?.changed?.length)
+            read.push(`these files, which Git doesn't track and which changed since: ${stale.changed.join(", ")}; read only their parts about stages`);
           request +=
-            `\n## This time: bring an index up to date\n\nThe index below was made at commit ${old.commit}. ` +
-            `Read what changed since (\`git log --oneline ${old.commit}..HEAD -- ${files}\`, then ` +
-            `\`git diff ${old.commit} HEAD -- ${files}\`), not the whole files, and print the whole index ` +
-            "again with those changes applied: add new stages and steps, and change the statuses and " +
-            "sentences they affect. Keep every other line exactly as it is: a person may have corrected it.\n\n" +
-            `${text.trim()}\n`;
+            `\n## This time: bring an index up to date\n\nThe index below may be out of date. Read ${read.join("; and ")}. ` +
+            "Print the whole index again with those changes applied: add new stages and steps, and change the " +
+            "statuses and sentences they affect. Keep every other line exactly as it is: a person may have " +
+            `corrected it.\n\n${text.trim()}\n`;
         }
         const requestFile = `${repo.common}/${REQUEST}`;
         await writeTextFile(requestFile, request, await readTextFile(requestFile));
@@ -204,11 +232,14 @@ export default class Stages extends View {
         });
         if (r.code !== 0) throw new Error(r.stderr.trim().split("\n").slice(-3).join("\n") || `${program} exited with ${r.code}.`);
         const out = fromAgent(r.stdout);
-        // Only files this repository tracks can be a source; the agent's order is kept.
-        const listed = new Set((await git(repo.top, ["ls-files", "--", ...out.sources])).split("\n").filter(Boolean));
-        const tracked = out.sources.filter((s) => listed.has(s));
-        if (!tracked.length) throw new Error("The agent named no file of this repository as its source, so its answer wasn't saved.");
-        const made = withHeader(out.body, tracked, head);
+        // Only files and folders inside this repository's work tree can be a source; the
+        // agent's order is kept.
+        const kept = [];
+        for (const s of out.sources) if ((await filesOf(repo.top, s)).length) kept.push(s);
+        if (!kept.length && !out.none) throw new Error("The agent named no file of this repository as its source, so its answer wasn't saved.");
+        const made = withHeader(out.body, kept, head);
+        const looseFile = `${repo.common}/${LOOSE}`;
+        await writeTextFile(looseFile, JSON.stringify(await looseHashes(repo.top, kept)), await readTextFile(looseFile));
         await writeTextFile(repo.file, made, await readTextFile(repo.file));
         if (this.repo?.top === repo.top) {
           this.text = made;
@@ -224,20 +255,15 @@ export default class Stages extends View {
     });
   }
 
-  isOpen(stage) {
-    const key = stage.code ?? stage.name;
+  // What a click opened or closed, per repository, over what shows open at first.
+  isOpen(key, first) {
     const open = this.opened.get(this.repo.top);
-    return open ? open.has(key) : stage.status === "doing";
+    return open?.has(key) ? open.get(key) : first;
   }
 
-  toggle(stage, cx) {
-    const key = stage.code ?? stage.name;
-    let open = this.opened.get(this.repo.top);
-    if (!open) {
-      open = new Set(this.index.stages.filter((s) => s.status === "doing").map((s) => s.code ?? s.name));
-      this.opened.set(this.repo.top, open);
-    }
-    if (!open.delete(key)) open.add(key);
+  toggle(key, first, cx) {
+    if (!this.opened.has(this.repo.top)) this.opened.set(this.repo.top, new Map());
+    this.opened.get(this.repo.top).set(key, !this.isOpen(key, first));
     cx.notify();
   }
 
@@ -290,7 +316,28 @@ export default class Stages extends View {
     return el.border_1().border_color(t.dim);
   }
 
-  row(t, entry, id, depth, open = null) {
+  // A folded group of stages: its name and how many.
+  groupRow(t, group, open) {
+    return h_flex()
+      .id(group.key)
+      .flex_none()
+      .h(26)
+      .pl(8)
+      .pr(8)
+      .gap(6)
+      .items_center()
+      .rounded(7)
+      .text_size(TEXT.small)
+      .text_color(t.muted)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => this.toggle(group.key, group.first, cx))
+      .child(div().w(14).flex_none().flex().justify_center().text_color(t.dim).child(Icon(open ? "chevron-down" : "chevron-right", 12)))
+      .child(div().flex_none().font_medium().child(group.label))
+      .child(div().flex_none().text_color(t.dim).child(String(group.items.length)));
+  }
+
+  row(t, entry, id, depth, open = null, key = null, first = false) {
     const done = entry.status === "done";
     return v_flex()
       .id(id)
@@ -304,7 +351,7 @@ export default class Stages extends View {
         el
           .cursor_pointer()
           .hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => this.toggle(entry, cx)),
+          .on_click((_e, cx) => this.toggle(key, first, cx)),
       )
       .child(
         h_flex()
@@ -408,7 +455,12 @@ export default class Stages extends View {
         ? "The commit this index was made at is gone, so it can't be brought up to date."
         : stale.missing.length
           ? `${stale.missing.join(", ")} ${stale.missing.length > 1 ? "are" : "is"} no longer in the repository.`
-          : `The documents have ${stale.commits} new commit${stale.commits > 1 ? "s" : ""} since this index was made.`;
+          : `Since this index was made: ${[
+              stale.commits ? `${stale.commits} new commit${stale.commits > 1 ? "s" : ""} to the documents` : null,
+              stale.changed.length ? `${stale.changed.length} untracked file${stale.changed.length > 1 ? "s" : ""} changed` : null,
+            ]
+              .filter(Boolean)
+              .join(", ")}.`;
       const canUpdate = !stale.unknown && !stale.missing.length;
       root.child(
         h_flex()
@@ -438,12 +490,37 @@ export default class Stages extends View {
       );
     }
     const list = v_flex().id("stages-list").flex_1().min_h(0).min_w(0).overflow_y_scrollbar().p(6);
-    this.index.stages.forEach((stage, i) => {
-      const open = stage.steps.length ? this.isOpen(stage) : null;
-      list.child(this.row(t, stage, `stage-${i}`, 0, open));
-      if (open) stage.steps.forEach((step, j) => list.child(this.row(t, step, `stage-${i}-${j}`, 1)));
-    });
-    if (!this.index.stages.length) list.child(this.message(t, "The index lists no stages."));
+    if (!this.index.stages.length)
+      list.child(
+        this.message(
+          t,
+          this.index.sources.length
+            ? "The index lists no stages."
+            : "No document in this repository records its development stages. To use particular files, name them on the index's first line (pencil), then make it again.",
+        ),
+      );
+    // The stages in progress show open; the done ones and those not started yet are folded
+    // into a row each, the latter open when nothing is in progress.
+    const stages = this.index.stages.map((stage, i) => ({ stage, i }));
+    const doing = stages.filter((s) => s.stage.status === "doing");
+    const groups = [
+      { key: "group:done", label: "Done", items: stages.filter((s) => s.stage.status === "done"), first: false },
+      ...doing.map((s) => ({ items: [s] })),
+      { key: "group:todo", label: "Not started", items: stages.filter((s) => s.stage.status === "todo"), first: !doing.length },
+    ];
+    for (const group of groups) {
+      if (!group.items.length) continue;
+      const open = group.key ? this.isOpen(group.key, group.first) : true;
+      if (group.key) list.child(this.groupRow(t, group, open));
+      if (!open) continue;
+      for (const { stage, i } of group.items) {
+        const key = `stage:${stage.code ?? stage.name}`;
+        const first = stage.status === "doing";
+        const shown = stage.steps.length ? this.isOpen(key, first) : null;
+        list.child(this.row(t, stage, `stage-${i}`, 0, shown, key, first));
+        if (shown) stage.steps.forEach((step, j) => list.child(this.row(t, step, `stage-${i}-${j}`, 1)));
+      }
+    }
     return root.child(list);
   }
 }
