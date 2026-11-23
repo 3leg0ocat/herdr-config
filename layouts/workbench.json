@@ -55,7 +55,9 @@
                 { "id": "github", "label": "GitHub", "icon": "mods/github/github.svg", "group": "panels",
                   "action": { "type": "panel", "container": "panel", "stack": "panel-body", "target": "github" } },
                 { "id": "automations", "label": "Automations", "icon": "mods/automations/automations.svg", "group": "panels",
-                  "action": { "type": "panel", "container": "panel", "stack": "panel-body", "target": "automations" } }
+                  "action": { "type": "panel", "container": "panel", "stack": "panel-body", "target": "automations" } },
+                { "id": "stages", "label": "Stages", "icon": "mods/stages/icons/stages.svg", "group": "panels",
+                  "action": { "type": "panel", "container": "panel", "stack": "panel-body", "target": "stages" } }
               ]
             }
           }
@@ -98,7 +100,8 @@
                     { "id": "files", "type": "block", "content": { "mod": "better-files" } },
                     { "id": "changes", "type": "block", "content": { "mod": "better-changes" } },
                     { "id": "github", "type": "block", "content": { "mod": "github" } },
-                    { "id": "automations", "type": "block", "content": { "mod": "automations" } }
+                    { "id": "automations", "type": "block", "content": { "mod": "automations" } },
+                    { "id": "stages", "type": "block", "content": { "mod": "stages" } }
                   ]
                 }
               ]

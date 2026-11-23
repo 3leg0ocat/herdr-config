@@ -61,6 +61,7 @@ if put "$work/gonzaga/github-panel/mods/github" github; then
 fi
 put "$work/gonzaga/github-panel/mods/issue-agent" issue-agent || true
 put "$work/automations/app/mods/automations" automations || true
+put "$here/mods/stages" stages || true
 if put "$work/sakwa/mods/sakwa" sakwa; then
   (cd "$home_dir" && git apply "$here/patches/sakwa-list.patch")
 fi
@@ -74,7 +75,7 @@ echo "installed: ${installed[*]:-nothing}"
 echo "skipped (already there): ${skipped[*]:-nothing}"
 
 if command -v herdr-app >/dev/null 2>&1; then
-  for m in better-files better-changes better-tabs better-icons github issue-agent automations sakwa; do
+  for m in better-files better-changes better-tabs better-icons github issue-agent automations sakwa stages; do
     herdr-app check "$home_dir/mods/$m" 2>&1 | tail -1
   done
 fi

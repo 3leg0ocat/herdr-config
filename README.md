@@ -1,10 +1,10 @@
 # herdr-config
 
 My [Herdr](https://herdr.dev) desktop-app setup: a `workbench` layout with Files, Changes,
-GitHub and Automations panels on the right, opened from buttons in the tab bar, and a notes
-list in the sidebar. It's put together from other people's mods, so this repository only
-holds what I wrote: the layout, three patches, and a script that installs everything else from its upstream repository at a
-pinned commit.
+GitHub, Automations and Stages panels on the right, opened from buttons in the tab bar, and a
+notes list in the sidebar. It's mostly put together from other people's mods, so this
+repository holds what I wrote: the layout, three patches, the Stages mod, and a script that
+installs everything else from its upstream repository at a pinned commit.
 
 ## What's in the window
 
@@ -20,11 +20,26 @@ pinned commit.
 | Changes | `better-changes` (also draws the pane headers) | same |
 | GitHub | `github`, `issue-agent` | [obrunogonzaga/herdr-mods](https://github.com/obrunogonzaga/herdr-mods) `1c7bca1`, MIT, patched |
 | Automations | `automations` | [3leg0ocat/herdr-automations](https://github.com/3leg0ocat/herdr-automations) `windows`, MIT |
+| Stages | `stages` | this repository, MIT |
 | (sidebar) Notes | `sakwa` | [rgonek/Sakwa](https://github.com/rgonek/Sakwa) `9fb6965`, Apache-2.0, patched |
 
 ## Files here
 
 - `layouts/workbench.json`, `layouts/workbench.svg`: the layout and its preview in Settings.
+- `mods/stages`: the development stages of the focused terminal's repository and the steps in
+  each (such as P08R and its Q1f, R4b), each with a status dot and one plain sentence, so a
+  code in a progress log says what it was. Projects write their progress in their own way,
+  so the list isn't parsed from it: an agent reads the documents and writes an index
+  (`prompt.md` says how), kept as `herdr-board.md` in the repository's `.git` folder: never
+  committed, shared by its worktrees, gone with the clone. Its first line names the documents
+  and the commit it was made at; edit it to choose other documents (files the repository
+  tracks only). When those documents have new commits, the panel offers Update, which reads
+  only the changes and keeps every other line, hand corrections included; a renamed document
+  is followed. The pencil opens the index to correct by hand, the sparkles make it again.
+  `stages.generate`, `stages.update` and `stages.refresh` can be bound to keys. The agent is
+  `pi -p` with only its read and bash tools and no project instructions; set `settings.model`
+  in `mods/stages/mod.json` (for example a fast, cheap model), or `settings.command` for
+  another agent that prints its answer.
 - `patches/better-files-path.patch`: the Files header works like Explorer's address bar.
   Click the title (or press `ctrl-l` in the tree) and the folder's full path comes up to type
   over; Enter goes there, Escape or a click elsewhere leaves it. The path is taken as typed:
@@ -102,8 +117,12 @@ Mods are unsandboxed code. Before installing, know that:
   note's older snapshot files there) and can send a note to an agent (`hc`).
 - The Automations panel runs the `herdr-automations` CLI; the scheduler starts agents on the
   schedules you write and creates worktrees for them.
+- Stages runs `git` in the focused terminal's repository every 30 seconds, and writes two
+  files in its `.git` folder. Only when you press Generate or Update does it start an agent
+  (`pi`, using the model you set), which reads the repository's documents and costs tokens;
+  a first index of a large project took about 2–3 minutes, an update under a minute.
 
 ## License
 
-The layout, patches and script are MIT ([LICENSE](LICENSE)). The mods keep their own licenses
+The layout, patches, Stages mod and script are MIT ([LICENSE](LICENSE)). The mods keep their own licenses
 in their upstream repositories; apart from the context lines of the patches, none of their code is copied here.
