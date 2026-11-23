@@ -28,8 +28,10 @@ installs everything else from its upstream repository at a pinned commit.
 - `layouts/workbench.json`, `layouts/workbench.svg`: the layout and its preview in Settings.
 - `mods/stages`: the development stages of the focused terminal's repository and the steps in
   each (such as P08R and its Q1f, R4b), each with a status dot and a sentence on what it
-  delivered, so a code in a progress log says what it was. The stages in progress show open;
-  the done ones and those not started are folded into a row each. Projects write their
+  delivered, so a code in a progress log says what it was. Done stages fold into one row;
+  the rest show, those in progress open. In a stage in progress every unfinished step shows,
+  and of its done steps only the latest one to four, as many as the panel's height leaves
+  room for; the earlier ones fold into a row. Projects write their
   progress in their own way (a progress log, a roadmap with checkboxes, a dated worklog, one
   file per milestone, notes in a folder Git ignores), so the list isn't parsed from it: an
   agent reads the documents and writes an index (`prompt.md` says how), kept as

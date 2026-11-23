@@ -20,6 +20,10 @@ const CHECK_MS = 30000;
 const AGENT_MS = 600000;
 const TEXT = { badge: 10, caption: 11, small: 12, body: 13 };
 const INDENT = 14;
+// The done steps a stage in progress shows: at least this many however small the panel, at
+// most this many however tall.
+const MIN_RECENT = 1;
+const MAX_RECENT = 4;
 
 const Icon = (name, size = 14) => svg(`mods/stages/icons/${name}.svg`).size(size).flex_none();
 
@@ -316,13 +320,23 @@ export default class Stages extends View {
     return el.border_1().border_color(t.dim);
   }
 
-  // A folded group of stages: its name and how many.
-  groupRow(t, group, open) {
+  // Roughly how tall a row draws, so the list can tell what fits: the name's line and the
+  // sentence wrapped at the panel's width (a CJK character about 11px wide, other text 6).
+  rowHeight(entry, depth) {
+    const width = Math.max(80, (this.size?.width ?? 368) - 2 - 12 - (8 + depth * INDENT) - 8 - 34);
+    let px = 0;
+    for (const ch of entry.note ?? "") px += ch.charCodeAt(0) >= 0x2e80 ? 11 : 6;
+    // Measured in the window: 6 of padding, 20 for the name, 18 for each line of the sentence.
+    return 6 + 20 + Math.ceil(px / width) * 18;
+  }
+
+  // A folded group: its name and how many.
+  groupRow(t, group, open, depth = 0) {
     return h_flex()
       .id(group.key)
       .flex_none()
       .h(26)
-      .pl(8)
+      .pl(8 + depth * INDENT)
       .pr(8)
       .gap(6)
       .items_center()
@@ -334,7 +348,7 @@ export default class Stages extends View {
       .on_click((_e, cx) => this.toggle(group.key, group.first, cx))
       .child(div().w(14).flex_none().flex().justify_center().text_color(t.dim).child(Icon(open ? "chevron-down" : "chevron-right", 12)))
       .child(div().flex_none().font_medium().child(group.label))
-      .child(div().flex_none().text_color(t.dim).child(String(group.items.length)));
+      .child(div().flex_none().text_color(t.dim).child(String(group.count)));
   }
 
   row(t, entry, id, depth, open = null, key = null, first = false) {
@@ -432,6 +446,12 @@ export default class Stages extends View {
       .rounded(10)
       .border_1()
       .border_color(t.border)
+      // How much the list shows depends on the room it has.
+      .on_size_change((size, cx) => {
+        if (size.width === this.size?.width && size.height === this.size?.height) return;
+        this.size = size;
+        cx.notify();
+      })
       .child(this.header(t));
     if (this.error) root.child(this.message(t, this.error, true));
     if (this.busy())
@@ -499,27 +519,66 @@ export default class Stages extends View {
             : "No document in this repository records its development stages. To use particular files, name them on the index's first line (pencil), then make it again.",
         ),
       );
-    // The stages in progress show open; the done ones and those not started yet are folded
-    // into a row each, the latter open when nothing is in progress.
+    // Done stages fold into one row; the others show, those in progress open. In a stage in
+    // progress every unfinished step shows, and of the done ones only the latest that fit the
+    // panel; the earlier ones fold into a row of their own.
     const stages = this.index.stages.map((stage, i) => ({ stage, i }));
-    const doing = stages.filter((s) => s.stage.status === "doing");
-    const groups = [
-      { key: "group:done", label: "Done", items: stages.filter((s) => s.stage.status === "done"), first: false },
-      ...doing.map((s) => ({ items: [s] })),
-      { key: "group:todo", label: "Not started", items: stages.filter((s) => s.stage.status === "todo"), first: !doing.length },
-    ];
-    for (const group of groups) {
-      if (!group.items.length) continue;
-      const open = group.key ? this.isOpen(group.key, group.first) : true;
-      if (group.key) list.child(this.groupRow(t, group, open));
-      if (!open) continue;
-      for (const { stage, i } of group.items) {
-        const key = `stage:${stage.code ?? stage.name}`;
-        const first = stage.status === "doing";
-        const shown = stage.steps.length ? this.isOpen(key, first) : null;
-        list.child(this.row(t, stage, `stage-${i}`, 0, shown, key, first));
-        if (shown) stage.steps.forEach((step, j) => list.child(this.row(t, step, `stage-${i}-${j}`, 1)));
+    const done = stages.filter((s) => s.stage.status === "done");
+    const rest = stages.filter((s) => s.stage.status !== "done");
+    const plan = rest.map(({ stage, i }) => {
+      const key = `stage:${stage.code ?? stage.name}`;
+      const first = stage.status === "doing";
+      const open = stage.steps.length ? this.isOpen(key, first) : null;
+      const all = open && this.isOpen(`earlier:${key}`, false);
+      return { stage, i, key, first, open, all, hidden: new Set() };
+    });
+    // What the panel has room for, after everything that always shows.
+    let room = (this.size?.height ?? 800) - 2 - 42 - 12 - (stale && !this.busy() ? 52 : 0) - (done.length ? 26 : 0);
+    for (const p of plan) {
+      room -= this.rowHeight(p.stage, 0);
+      if (p.open) for (const step of p.stage.steps) if (step.status !== "done") room -= this.rowHeight(step, 1);
+    }
+    for (const p of plan) {
+      if (!p.open || p.all) continue;
+      const finished = p.stage.steps.map((step, j) => ({ step, j })).filter(({ step }) => step.status === "done");
+      let shown = 0;
+      for (const { step } of [...finished].reverse()) {
+        const h = this.rowHeight(step, 1);
+        if (shown >= MAX_RECENT || (shown >= MIN_RECENT && h > room - (shown < finished.length - 1 ? 26 : 0))) break;
+        room -= h;
+        shown += 1;
       }
+      for (const { j } of finished.slice(0, finished.length - shown)) p.hidden.add(j);
+      if (p.hidden.size) room -= 26;
+    }
+    if (done.length) {
+      const group = { key: "group:done", label: "Done", count: done.length, first: false };
+      const open = this.isOpen(group.key, group.first);
+      list.child(this.groupRow(t, group, open, 0));
+      if (open)
+        for (const { stage, i } of done) {
+          const key = `stage:${stage.code ?? stage.name}`;
+          const shown = stage.steps.length ? this.isOpen(key, false) : null;
+          list.child(this.row(t, stage, `stage-${i}`, 0, shown, key, false));
+          if (shown) stage.steps.forEach((step, j) => list.child(this.row(t, step, `stage-${i}-${j}`, 1)));
+        }
+    }
+    for (const p of plan) {
+      list.child(this.row(t, p.stage, `stage-${p.i}`, 0, p.open, p.key, p.first));
+      if (!p.open) continue;
+      // Shown whole on request, with the row to fold them again.
+      const earlier = { key: `earlier:${p.key}`, label: "Earlier done", first: false };
+      const finished = p.stage.steps.filter((step) => step.status === "done").length;
+      if (p.all && finished > MIN_RECENT) list.child(this.groupRow(t, { ...earlier, count: finished }, true, 1));
+      let folded = false;
+      p.stage.steps.forEach((step, j) => {
+        if (p.hidden.has(j)) {
+          if (!folded) list.child(this.groupRow(t, { ...earlier, count: p.hidden.size }, false, 1));
+          folded = true;
+          return;
+        }
+        list.child(this.row(t, step, `stage-${p.i}-${j}`, 1));
+      });
     }
     return root.child(list);
   }
