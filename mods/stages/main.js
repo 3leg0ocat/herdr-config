@@ -24,6 +24,8 @@ const INDENT = 14;
 // most this many however tall.
 const MIN_RECENT = 1;
 const MAX_RECENT = 4;
+// Between the stage in progress and the stages not started yet.
+const GROUP_GAP = 10;
 
 const Icon = (name, size = 14) => svg(`mods/stages/icons/${name}.svg`).size(size).flex_none();
 
@@ -519,13 +521,14 @@ export default class Stages extends View {
             : "No document in this repository records its development stages. To use particular files, name them on the index's first line (pencil), then make it again.",
         ),
       );
-    // Done stages fold into one row; the others show, those in progress open. In a stage in
-    // progress every unfinished step shows, and of the done ones only the latest that fit the
-    // panel; the earlier ones fold into a row of their own.
+    // Done stages fold into one row, and so do those not started yet (open when nothing is in
+    // progress), set a little apart. The stages in progress show open: every unfinished step,
+    // and of the done ones only the latest that fit the panel; the earlier ones fold into a row.
     const stages = this.index.stages.map((stage, i) => ({ stage, i }));
     const done = stages.filter((s) => s.stage.status === "done");
-    const rest = stages.filter((s) => s.stage.status !== "done");
-    const plan = rest.map(({ stage, i }) => {
+    const todo = stages.filter((s) => s.stage.status === "todo");
+    const doing = stages.filter((s) => s.stage.status === "doing");
+    const plan = doing.map(({ stage, i }) => {
       const key = `stage:${stage.code ?? stage.name}`;
       const first = stage.status === "doing";
       const open = stage.steps.length ? this.isOpen(key, first) : null;
@@ -533,7 +536,7 @@ export default class Stages extends View {
       return { stage, i, key, first, open, all, hidden: new Set() };
     });
     // What the panel has room for, after everything that always shows.
-    let room = (this.size?.height ?? 800) - 2 - 42 - 12 - (stale && !this.busy() ? 52 : 0) - (done.length ? 26 : 0);
+    let room = (this.size?.height ?? 800) - 2 - 42 - 12 - (stale && !this.busy() ? 52 : 0) - (done.length ? 26 : 0) - (todo.length ? 26 + GROUP_GAP : 0);
     for (const p of plan) {
       room -= this.rowHeight(p.stage, 0);
       if (p.open) for (const step of p.stage.steps) if (step.status !== "done") room -= this.rowHeight(step, 1);
@@ -579,6 +582,18 @@ export default class Stages extends View {
         }
         list.child(this.row(t, step, `stage-${p.i}-${j}`, 1));
       });
+    }
+    if (todo.length) {
+      const group = { key: "group:todo", label: "Not started", count: todo.length, first: !doing.length };
+      const open = this.isOpen(group.key, group.first);
+      list.child(this.groupRow(t, group, open, 0).when(doing.length > 0, (el) => el.mt(GROUP_GAP)));
+      if (open)
+        for (const { stage, i } of todo) {
+          const key = `stage:${stage.code ?? stage.name}`;
+          const shown = stage.steps.length ? this.isOpen(key, false) : null;
+          list.child(this.row(t, stage, `stage-${i}`, 0, shown, key, false));
+          if (shown) stage.steps.forEach((step, j) => list.child(this.row(t, step, `stage-${i}-${j}`, 1)));
+        }
     }
     return root.child(list);
   }
