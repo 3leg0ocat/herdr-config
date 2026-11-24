@@ -27,64 +27,31 @@ installs everything else from its upstream repository at a pinned commit.
 
 - `layouts/workbench.json`, `layouts/workbench.svg`: the layout and its preview in Settings.
 - `mods/stages`: the development stages of the focused terminal's repository and the steps in
-  each (such as P08R and its Q1f, R4b), each with a status dot and a sentence on what it
-  delivered, so a code in a progress log says what it was. Done stages fold into one row,
-  and so do those not started yet, set a little apart; the stages in progress show open. In a stage in progress every unfinished step shows,
-  and of its done steps only the latest one to four, as many as the panel's height leaves
-  room for; the earlier ones fold into a row. Projects write their
-  progress in their own way (a progress log, a roadmap with checkboxes, a dated worklog, one
-  file per milestone, notes in a folder Git ignores), so the list isn't parsed from it: an
-  agent reads the documents and writes an index (`prompt.md` says how), kept as
-  `herdr-board.md` in the repository's `.git` folder: never committed, shared by its
-  worktrees, gone with the clone. A repository with no such documents (only a changelog, say)
-  gets an empty index that says so. The index's first line names the documents and the
-  commit it was made at; edit it to choose other documents or folders inside the repository,
-  tracked or not. When the tracked ones have new commits, or the untracked ones new contents,
-  the panel offers Update, which reads only what changed and keeps every other line, hand
-  corrections included; a renamed tracked document is followed. The pencil opens the index to correct by hand, the sparkles make it again.
-  `stages.generate`, `stages.update` and `stages.refresh` can be bound to keys. The agent is
-  `pi -p` with only its read and bash tools and no project instructions; set `settings.model`
-  in `mods/stages/mod.json` (for example a fast, cheap model), or `settings.command` for
-  another agent that prints its answer.
-- `patches/better-files-path.patch`: the Files header works like Explorer's address bar.
-  Click the title (or press `ctrl-l` in the tree) and the folder's full path comes up to type
-  over; Enter goes there, Escape or a click elsewhere leaves it. The path is taken as typed:
-  only the spaces around it are dropped, `~` is the home folder, a relative path is read from
-  the folder on show, and on Windows `%VAR%` is expanded and a bare `D:` means `D:\`. A path
-  that isn't there is reported as Explorer reports it, with the box left open to correct:
-  `Cannot find "…". Check the spelling and try again.`, or for a folder that can't be read,
-  `Access to "…" is denied. You do not have permission to open this folder.` A file shows its
-  folder and opens in a tab. The header looks as before until a typed folder is on show: then
-  its name is in the accent colour, and Refresh still refreshes but also goes back to the
-  terminal's folder. Moving to another space, to a terminal in another folder, or a `cd` in
-  the terminal goes back too; looking at a file tab doesn't.
-- `patches/github-windows.patch`: the GitHub panel ran macOS `open` for links; this picks
-  `rundll32 url.dll,FileProtocolHandler` on Windows and `xdg-open` on Linux (https links only,
-  as before). It also says how to install `gh` when it's missing.
-- `patches/sakwa-list.patch`: Sakwa as a flat block under the agents, styled like them
-  (`"bare": true` in the layout; Send, All notes and the view switch become header icons), and
-  no automatic right-hand dock. It also shows a note as a list: one item per line, stored as
-  Markdown `- [ ]` / `- [x]`. Type in the box at the bottom and press Enter or + to add; tick
-  the box to check (a checked item moves to the bottom; unchecked, it goes back above the checked
-  ones); double-click an item to edit it in place (Enter, or a click anywhere else,
-  saves; saving it empty deletes the item); drag an item to move it (it follows the pointer and the
-  others slide aside; leaving the list cancels). Hovering an unchecked item shows a send
-  icon that sends that item alone, to the same agents the whole note would go to (checked
-  items are done and aren't sent); a long item also shows its full text in a wrapped card.
-  The header icon switches to Sakwa's own text editor for the same note. The Tab / Space / Global buttons each name their own context on hover (the
-  tab's name, the space's name). Upstream Sakwa keeps every saved snapshot forever; patched, each note keeps only its newest one (the new file is
-  written before the old one is deleted), so there is no history to go back to beyond the
-  editor's own undo. All notes lists one row per note: a dot for its status (green: its tab or space
-  is open; grey: closed), its name, its unchecked items, and its scope and date; the note on show is
-  highlighted. Hovering a row shows two icons. **Move here** moves the note to the focused tab,
-  space or Global, as chosen in the Move to switch under the search box (it starts at the selected
-  scope button); if
-  a note is already there, the moved lines that aren't in it yet are added, unchecked items above
-  its checked ones. **Delete** turns into a red **Delete?**; clicking that deletes the note and its
-  files, and leaving the row cancels. A note emptied in place stays in All notes, as
-  upstream keeps it, until it is deleted there.
-- `install.sh`: fetches the mods above at their pinned commits, applies the patches, copies the
-  layout. Anything already installed under the same name is skipped, never overwritten.
+  each, with status and a one-line summary.
+  - An agent reads the project's progress documents and writes an index, `herdr-board.md` in
+    the repository's `.git` folder (never committed, shared by its worktrees). `prompt.md` is
+    its prompt.
+  - The index's first line names its source documents and commit; edit it to choose others.
+    When they change, Update rereads only what changed and keeps hand edits.
+  - Done and not-started stages fold; a stage in progress shows its open steps and its latest
+    done ones.
+  - Commands: `stages.generate`, `stages.update`, `stages.refresh`. The agent is `pi -p` with
+    read and bash only; set `settings.model` or `settings.command` in `mod.json`.
+- `patches/better-files-path.patch`: an editable path in the Files header, like Explorer's
+  address bar (click the title or press `ctrl-l`). Accepts `~`, relative paths and, on
+  Windows, `%VAR%` and bare drive letters; a file opens in a tab. Refresh, switching space or a
+  `cd` returns to the terminal's folder.
+- `patches/github-windows.patch`: opens links with the platform's handler on Windows and Linux
+  (upstream uses macOS `open`), and says how to install `gh` when it's missing.
+- `patches/sakwa-list.patch`: Sakwa as a flat block under the agents (`"bare": true`), without
+  the automatic right-hand dock.
+  - List view: one Markdown task per line. Add, check (checked items sink), double-click to
+    edit, drag to reorder; a hover icon sends a single item to an agent.
+  - Keeps only the newest snapshot of each note.
+  - All notes: one row per note with its status; hover icons move a note to the focused tab,
+    space or Global (merging into a note already there) or delete it.
+- `install.sh`: fetches the mods above at their pinned commits, applies the patches and copies
+  the layout. Anything already installed is skipped, never overwritten.
 
 ## Install
 
@@ -129,8 +96,9 @@ Mods are unsandboxed code. Before installing, know that:
   (`hc`).
 - The GitHub panel runs `gh`, which talks to GitHub. Its Agent button creates a git worktree
   and starts an agent there.
-- Sakwa keeps notes as files under `data/sakwa` in the Herdr home (patched: it deletes a
-  note's older snapshot files there) and can send a note to an agent (`hc`).
+- Sakwa keeps notes as files under `data/sakwa` in the Herdr home and can send a note to an
+  agent (`hc`). Patched, it deletes a note's older snapshots, and all its files when the note
+  is deleted in All notes.
 - The Automations panel runs the `herdr-automations` CLI; the scheduler starts agents on the
   schedules you write and creates worktrees for them.
 - Stages runs `git` in the focused terminal's repository every 30 seconds, and writes three
