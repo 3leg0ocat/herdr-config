@@ -74,7 +74,15 @@ installs everything else from its upstream repository at a pinned commit.
   The header icon switches to Sakwa's own text editor for the same note. The Tab / Space / Global buttons each name their own context on hover (the
   tab's name, the space's name). Upstream Sakwa keeps every saved snapshot forever; patched, each note keeps only its newest one (the new file is
   written before the old one is deleted), so there is no history to go back to beyond the
-  editor's own undo.
+  editor's own undo. All notes lists one row per note: a dot for its status (green: its tab or space
+  is open; grey: closed), its name, its unchecked items, and its scope and date; the note on show is
+  highlighted. Hovering a row shows two icons. **Move here** moves the note to the focused tab,
+  space or Global, as chosen in the Move to switch under the search box (it starts at the selected
+  scope button); if
+  a note is already there, the moved lines that aren't in it yet are added, unchecked items above
+  its checked ones. **Delete** turns into a red **Delete?**; clicking that deletes the note and its
+  files, and leaving the row cancels. A note emptied in place stays in All notes, as
+  upstream keeps it, until it is deleted there.
 - `install.sh`: fetches the mods above at their pinned commits, applies the patches, copies the
   layout. Anything already installed under the same name is skipped, never overwritten.
 

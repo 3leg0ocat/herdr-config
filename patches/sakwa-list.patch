@@ -1,3 +1,12 @@
+diff --git a/mods/sakwa/icons/arrow-left.svg b/mods/sakwa/icons/arrow-left.svg
+new file mode 100644
+index 0000000..ceafcff
+--- /dev/null
++++ b/mods/sakwa/icons/arrow-left.svg
+@@ -0,0 +1,3 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
++<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>
++</svg>
 diff --git a/mods/sakwa/icons/check.svg b/mods/sakwa/icons/check.svg
 new file mode 100644
 index 0000000..48ee61f
@@ -15,6 +24,15 @@ index 0000000..70413dd
 @@ -0,0 +1,3 @@
 +<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 +<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>
++</svg>
+diff --git a/mods/sakwa/icons/import.svg b/mods/sakwa/icons/import.svg
+new file mode 100644
+index 0000000..a1c944a
+--- /dev/null
++++ b/mods/sakwa/icons/import.svg
+@@ -0,0 +1,3 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
++<path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4"/>
 +</svg>
 diff --git a/mods/sakwa/icons/list-checks.svg b/mods/sakwa/icons/list-checks.svg
 new file mode 100644
@@ -34,11 +52,29 @@ index 0000000..fa9ee37
 +<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 +<path d="M5 12h14"/><path d="M12 5v14"/>
 +</svg>
+diff --git a/mods/sakwa/icons/search.svg b/mods/sakwa/icons/search.svg
+new file mode 100644
+index 0000000..ccc0fbb
+--- /dev/null
++++ b/mods/sakwa/icons/search.svg
+@@ -0,0 +1,3 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
++<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
++</svg>
+diff --git a/mods/sakwa/icons/trash-2.svg b/mods/sakwa/icons/trash-2.svg
+new file mode 100644
+index 0000000..b1aa75f
+--- /dev/null
++++ b/mods/sakwa/icons/trash-2.svg
+@@ -0,0 +1,3 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
++<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>
++</svg>
 diff --git a/mods/sakwa/journal.js b/mods/sakwa/journal.js
-index 2bbd1de..0dbb752 100644
+index 2bbd1de..5dbd30c 100644
 --- a/mods/sakwa/journal.js
 +++ b/mods/sakwa/journal.js
-@@ -14,10 +14,20 @@ export function validRevision(r) {
+@@ -14,15 +14,39 @@ export function validRevision(r) {
  
  export function createJournal(io) {
    const records = new Map();
@@ -57,10 +93,30 @@ index 2bbd1de..0dbb752 100644
 +        try { await io.remove(`${id}.json`); } catch { /* Left over; pruned again on the next load. */ }
 +      }
 +    },
++    // Local: delete every file of a note. Throws if a file could not be deleted; it then comes back
++    // on the next load.
++    async drop(key) {
++      const failed = [];
++      for (const r of journal.history(key)) {
++        records.delete(r.id);pruned.add(r.id);
++        try { await io.remove(`${r.id}.json`); } catch { failed.push(r.id); }
++      }
++      if (failed.length) throw Error(`Could not delete ${failed.length} note file(s) in data/sakwa/revisions`);
++    },
      async load() {
        if (loading) return loading;
        loading = (async()=>{
-@@ -31,6 +41,8 @@ export function createJournal(io) {
+         const errors = [];
+-        for (const name of await io.list()) {
++        // Local: a note deleted in another window drops out here too. Only records known before
++        // the listing count: one written meanwhile may not be listed yet.
++        const before = new Set(records.keys()), names = await io.list(), listed = new Set(names);
++        for (const id of before) if (!listed.has(`${id}.json`)) { records.delete(id);pruned.add(id); }
++        for (const name of names) {
+           if (!name.endsWith('.json') || records.has(name.slice(0,-5))) continue;
+           try {
+             const record = JSON.parse(await io.read(name));
+@@ -31,6 +55,8 @@ export function createJournal(io) {
            } catch (e) { errors.push(`${name}: ${e.message}`); }
          }
          journal.errors = errors;
@@ -69,7 +125,7 @@ index 2bbd1de..0dbb752 100644
        })();
        try { await loading; } finally { loading = null; }
      },
-@@ -50,6 +62,7 @@ export function createJournal(io) {
+@@ -50,6 +76,7 @@ export function createJournal(io) {
          if (existing !== raw) throw error;
        }
        records.set(record.id,record);
@@ -78,7 +134,7 @@ index 2bbd1de..0dbb752 100644
      },
      async append(context,text,parents) { return journal.put(journal.revision(context,text,parents)); },
 diff --git a/mods/sakwa/main.js b/mods/sakwa/main.js
-index 775bf93..a3f8919 100644
+index 775bf93..aa9bb22 100644
 --- a/mods/sakwa/main.js
 +++ b/mods/sakwa/main.js
 @@ -1,5 +1,5 @@
@@ -89,7 +145,7 @@ index 775bf93..a3f8919 100644
  import { spaces, machines, agents, terminals, focused, panes, theme, props, layout, run,
    hc, shared, setShared, nextCommand, notify } from 'herdr';
  import { contextFor, contextKey, contextStatus, validContext, recipients } from './context.js';
-@@ -11,12 +11,37 @@ import { openNote, sendNote } from './presentation.js';
+@@ -11,12 +11,50 @@ import { openNote, sendNote } from './presentation.js';
  import { returnNoteToSidebar } from './navigation.js';
  import { text, button, popover, row, contextGroup } from './ui.js';
  
@@ -105,6 +161,19 @@ index 775bf93..a3f8919 100644
 +const ROW=30; // local: list row height
 +// Local: the list with the item at `from` taken out and put back at `to`.
 +function reorder(list,from,to){const o=list.slice(),[x]=o.splice(from,1);o.splice(to,0,x);return o;}
++// Local: a moved note joins the note already there. Its lines that aren't there yet (an item counts
++// as there if its text is, checked or not) are added: unchecked ones above the first checked item,
++// checked ones at the end.
++function mergeNotes(target,source){
++  const sig=l=>{const c=l.match(CHECK);if(c)return c[2].trim();const b=l.match(BULLET);return (b?b[1]:l).trim();};
++  const done=l=>{const c=l.match(CHECK);return Boolean(c&&c[1]!==' ');};
++  const base=target.replace(/\s+$/,''),lines=base?base.split('\n'):[];
++  const have=new Set(lines.filter(l=>l.trim()).map(sig));
++  const add=source.split('\n').filter(l=>{if(!l.trim()||have.has(sig(l)))return false;have.add(sig(l));return true;});
++  const first=lines.findIndex(done),open=add.filter(l=>!done(l)),closed=add.filter(done);
++  if(first<0)return [...lines,...open,...closed].join('\n');
++  lines.splice(first,0,...open);return [...lines,...closed].join('\n');
++}
 +// Rough rendered width at 13px: wide (CJK) characters about 13px, others about 7px.
 +function textWidth(s){let w=0;for(const ch of s)w+=ch.codePointAt(0)>=0x2e80?13:7;return w;}
 +
@@ -127,7 +196,7 @@ index 775bf93..a3f8919 100644
      this.scope='tab';this.pinned=validContext(initial?.context)?initial.context:null;
      this.current=null;this.baseIds=[];this.loaded=false;this.busy=false;this.panel=null;
      this.journal=createJournal(fileAdapter());
-@@ -30,12 +55,8 @@ export default class Sakwa extends View {
+@@ -30,12 +68,8 @@ export default class Sakwa extends View {
      this.editor.on('focus',()=>{this.editing=true;});
      this.editor.on('blur',()=>{this.editing=false;});
      this.editor.on('change',(_e,cx)=>{
@@ -142,7 +211,14 @@ index 775bf93..a3f8919 100644
      });
      try { this.book=createDraftBook(this.journal,localStorage,records=>this.recovery.save(records)); }
      catch(e) { this.fatal=e.message;this.notice(e.message,'error',true); }
-@@ -54,6 +75,218 @@ export default class Sakwa extends View {
+@@ -48,12 +82,224 @@ export default class Sakwa extends View {
+         const command=await nextCommand(),name=typeof command==='string'?command:command.name;
+         if(name==='focus')this.focusEditor();
+         if(['tab','space','global'].includes(name))this.selectScope(name,cx);
+-        if(name==='all'){this.panel='all';cx.notify();}
++        if(name==='all')this.openAll(cx);
+         if(name==='sidebar'&&!this.framed&&focused()?.pane===this.paneId)this.returnSidebar(cx);
+       }
      });
    }
  
@@ -361,7 +437,7 @@ index 775bf93..a3f8919 100644
    desired() { return this.pinned || contextFor(this.scope,focused(),spaces()); }
    note(key) { return this.journal.notes().find(n=>n.key===key); }
    setText(value) {
-@@ -71,6 +304,7 @@ export default class Sakwa extends View {
+@@ -71,6 +317,7 @@ export default class Sakwa extends View {
      const next=this.desired();
      if(!next){this.current=null;this.setText('');return;}
      const key=contextKey(next),changed=!this.current || contextKey(this.current)!==key;
@@ -369,7 +445,55 @@ index 775bf93..a3f8919 100644
      const note=this.note(key),draft=this.book?.get(key);
      const ids=draft?[draft.id]:(note?.heads.map(h=>h.id)||[]);
      const signature=JSON.stringify(ids.slice().sort());
-@@ -190,7 +424,7 @@ export default class Sakwa extends View {
+@@ -178,6 +425,47 @@ export default class Sakwa extends View {
+   chooseNote(note,cx) {
+     this.pinned=note.context;this.panel=null;this.message=null;this.sync();cx.notify();
+   }
++  // Local: where Move here puts a note: the focused tab or space, or Global. All notes chooses which;
++  // it starts at the selected scope button. Never a pinned note's own context.
++  moveScope() { return this.moveTo||this.current?.scope||this.pinned?.scope||this.scope; }
++  moveTarget() { return contextFor(this.moveScope(),focused(),spaces()); }
++  openAll(cx) { this.panel='all';this.moveTo=null;this.confirmDelete=null;cx.notify(); }
++  // Local: show again from the files, whatever was on show.
++  reload() { this.current=null;this.sync();setShared('sakwa.changed.v1',revisionId()); }
++  // Local: delete a note: every file of it. The second click on Delete does it.
++  deleteNote(note,cx) {
++    if(this.confirmDelete!==note.key){this.confirmDelete=note.key;cx.notify();return;}
++    this.confirmDelete=null;
++    this.work(cx,async()=>{
++      await this.book.flush();
++      if(this.book.get(note.key))throw Error('This note has unsaved changes; try again');
++      try { await this.journal.drop(note.key); }
++      finally {
++        if(this.pinned&&contextKey(this.pinned)===note.key)this.pinned=null;
++        this.reload();
++      }
++      this.notice(`Deleted ${note.context.label}`,'success');
++    });
++  }
++  // Local: move a note to the focused context, joining the note already there. The new version is
++  // written before the old note's files are deleted.
++  moveNote(note,cx) {
++    const target=this.moveTarget();if(!target)return;
++    const key=contextKey(target);if(key===note.key)return;
++    this.confirmDelete=null;
++    this.work(cx,async()=>{
++      await this.book.flush();
++      if(this.book.get(note.key)||this.book.get(key))throw Error('A note has unsaved changes; try again');
++      const source=this.note(note.key),there=this.note(key);
++      if(!source)throw Error('This note is gone');
++      await this.journal.append(target,there?mergeNotes(there.text,source.text):source.text,there?there.heads.map(h=>h.id):[]);
++      try { await this.journal.drop(note.key); }
++      finally {
++        this.pinned=null;this.panel=null;this.reload();
++      }
++      this.notice(`Moved ${note.context.label} to ${target.label}`,'success');
++    });
++  }
+   allNotes() {
+     const byKey=new Map(this.journal.notes().map(n=>[n.key,n]));
+     for(const draft of this.book?.pending()||[])byKey.set(draft.key,{...draft,heads:[]});
+@@ -190,7 +478,7 @@ export default class Sakwa extends View {
    }
    send(address,cx) {
      if(this.busy || !this.current)return;
@@ -378,7 +502,7 @@ index 775bf93..a3f8919 100644
      this.busy=true;this.panel=null;this.message=null;
      this.work(cx,async()=>{
        try {
-@@ -203,6 +437,7 @@ export default class Sakwa extends View {
+@@ -203,6 +491,7 @@ export default class Sakwa extends View {
      });
    }
    sendClick(cx) {
@@ -386,7 +510,97 @@ index 775bf93..a3f8919 100644
      const candidates=recipients(this.current,agents(),terminals());
      if(candidates.length===1)this.send(candidates[0].address,cx);
      else {this.panel='recipients';cx.notify();}
-@@ -249,28 +484,43 @@ export default class Sakwa extends View {
+@@ -218,16 +507,79 @@ export default class Sakwa extends View {
+   archive(cx) {
+     const t=theme(),q=this.query.value().toLowerCase();
+     const notes=this.allNotes().filter(n=>`${n.context.label}\n${n.text}`.toLowerCase().includes(q));
+-    return v_flex().size_full().min_h(0).gap(8)
+-      .child(row().child(text('All notes').font_semibold()).child(button('back','Back',(_e,cx)=>{this.panel=null;cx.notify();})))
+-      .child(Input.new(this.query).h(32).px(8).border_1().rounded(6).border_color(t.border).bg(t.background))
+-      .child(text('Closed contexts stay here. Nothing is deleted automatically.',true))
+-      .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().gap(6)
+-        .when(!notes.length,e=>e.child(text('No saved notes yet.',true)))
+-        .children(notes.map(n=>v_flex().p(8).gap(4).rounded(6).bg(t.chrome)
+-          .child(button(`note-${n.id}`,`${n.context.scope.toUpperCase()} · ${n.context.label}`,(_e,cx)=>this.chooseNote(n,cx)))
+-          .child(text(`${contextStatus(n.context,spaces(),machines())} · ${n.context.machine||'this computer'} · ${new Date(n.at).toLocaleString()}`,true))
+-          .child(text(n.text.replace(/\n/g,' ').slice(0,120)||'(empty note)',true).truncate()))));
++    const target=this.moveTarget(),targetKey=target?contextKey(target):null,joining=Boolean(targetKey&&this.note(targetKey));
++    const cap=s=>s[0].toUpperCase()+s.slice(1),where=target?`${cap(target.scope)} · ${target.label}`:null;
++    const currentKey=this.current?contextKey(this.current):null;
++    const back=(_e,cx)=>{this.panel=null;this.confirmDelete=null;this.hoverNote=null;cx.notify();};
++    // Local: one row per note: a status dot, its name, its open items, then scope, status and when.
++    // Move here and Delete show on hover; Delete asks once more in red, and leaving the row cancels.
++    const tone={active:t.ansi2,archived:t.dim,unavailable:t.ansi3};
++    const pad=x=>String(x).padStart(2,'0');
++    const when=at=>{const d=new Date(at),now=new Date();
++      return d.toDateString()===now.toDateString()?`${pad(d.getHours())}:${pad(d.getMinutes())}`:
++        `${d.getFullYear()===now.getFullYear()?'':d.getFullYear()+'/'}${d.getMonth()+1}/${d.getDate()}`;};
++    const action=(id,icon,tip,act,disabled)=>div().id(id).size(22).flex_none().rounded(5).flex().items_center().justify_center()
++      .text_color(t.dim).tooltip(tip).when(disabled,e=>e.opacity(0.35))
++      .when(!disabled,e=>e.cursor_pointer().hover(s=>s.bg(t.raised).text_color(t.foreground))
++        .on_click((ev,cx)=>{cx.stop_propagation();act(ev,cx);}))
++      .child(svg(`mods/sakwa/icons/${icon}.svg`).size(14));
++    const card=n=>{
++      const status=contextStatus(n.context,spaces(),machines()),items=parseItems(n.text);
++      const open=items.filter(x=>!x.done),done=items.length-open.length;
++      const confirming=this.confirmDelete===n.key,shown=confirming||this.hoverNote===n.key,here=n.key===currentKey;
++      const preview=open.map(x=>x.text).join(' · ')||(items.length?'All done':'Empty');
++      const meta=[cap(n.context.scope),status,done?`${done} done`:null,n.context.machine,when(n.at)].filter(Boolean).join(' · ');
++      const canMove=Boolean(target&&targetKey!==n.key&&n.text.trim());
++      const moveTip=!target?'No tab or space in focus':targetKey===n.key?'Already here':!n.text.trim()?'Nothing to move':
++        `Move to ${where}${joining?', joining the note there':''}`;
++      return h_flex().id(`note-${n.id}`).px(8).py(6).gap(8).rounded(8).items_start().cursor_pointer()
++        .when(here,e=>e.bg(t.selected)).when(!here,e=>e.hover(s=>s.bg(t.hover)))
++        .on_hover((on,cx)=>{
++          if(on)this.hoverNote=n.key;else if(this.hoverNote===n.key)this.hoverNote=null;
++          if(!on&&this.confirmDelete===n.key)this.confirmDelete=null;
++          cx.notify();
++        })
++        .on_click((_e,cx)=>this.chooseNote(n,cx))
++        .child(div().mt(6).size(7).flex_none().rounded(4).bg(tone[status]||t.dim))
++        .child(v_flex().flex_1().min_w(0).gap(1)
++          .child(div().truncate().text_size(13).text_color(t.foreground).child(n.context.label))
++          .child(div().truncate().text_size(12).text_color(open.length?t.muted:t.dim).child(preview))
++          .child(div().truncate().text_size(11).text_color(t.dim).child(meta)))
++        .when(shown&&!confirming,e=>e.child(h_flex().flex_none().gap(2)
++          .child(action(`move-${n.id}`,'import',moveTip,(_e,cx)=>this.moveNote(n,cx),this.busy||!canMove))
++          .child(action(`delete-${n.id}`,'trash-2','Delete this note',(_e,cx)=>this.deleteNote(n,cx),this.busy))))
++        .when(confirming,e=>e.child(h_flex().id(`delete-confirm-${n.id}`).flex_none().h(22).px(7).gap(4).rounded(5).items_center()
++          .border_1().border_color(t.ansi1).text_color(t.ansi1).text_size(11.5).cursor_pointer()
++          .tooltip('Delete this note and its files').hover(s=>s.bg(t.raised))
++          .on_click((_e,cx)=>{cx.stop_propagation();this.deleteNote(n,cx);})
++          .child(svg('mods/sakwa/icons/trash-2.svg').size(12)).child('Delete?')));
++    };
++    return v_flex().size_full().min_h(0).gap(6)
++      .child(h_flex().px(8).h(24).gap(8).items_center()
++        .child(this.headerIcon('notes-back','arrow-left','Back',back))
++        .child(div().flex_1().text_size(13).font_semibold().child('All notes'))
++        .child(div().text_size(11.5).text_color(t.dim).child(String(notes.length))))
++      .child(h_flex().mx(8).pl(9).pr(4).h(30).flex_none().gap(6).rounded(7).items_center()
++        .border_1().border_color(t.border).bg(t.background)
++        .child(svg('mods/sakwa/icons/search.svg').size(13).flex_none().text_color(t.dim))
++        .child(Input.new(this.query).flex_1().min_w(0).h(28).text_size(12.5)))
++      // Local: where Move here puts notes: Tab, Space or Global, each naming its own context on hover.
++      .child(h_flex().px(8).gap(6).items_center().text_size(11).text_color(t.dim)
++        .child(svg('mods/sakwa/icons/import.svg').size(11).flex_none())
++        .child(div().flex_none().child('Move to'))
++        .child(h_flex().flex_none().gap(2).children(['tab','space','global'].map(s=>{
++          const on=s===this.moveScope(),to=contextFor(s,focused(),spaces());
++          return div().id(`move-to-${s}`).h(20).px(7).rounded(5).flex().items_center().text_size(11.5)
++            .border_1().border_color(on?t.input:t.chrome).bg(on?t.raised:t.chrome)
++            .text_color(on?t.foreground:to?t.muted:t.dim).when(on,e=>e.font_semibold())
++            .tooltip(to?to.label:`No ${s} in focus`).when(!to,e=>e.opacity(0.5))
++            .when(Boolean(to)&&!on,e=>e.cursor_pointer().hover(x=>x.bg(t.hover))
++              .on_click((_e,cx)=>{this.moveTo=s;this.confirmDelete=null;cx.notify();}))
++            .child(cap(s));
++        }))))
++      .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().gap(1)
++        .when(!notes.length,e=>e.child(div().px(8).py(6).text_size(12).text_color(t.dim).child(q?'No note matches.':'No saved notes yet.')))
++        .children(notes.map(card)));
+   }
+   render(cx) {
+     // Schedule retained input changes outside render, as required by GPUI.
+@@ -249,28 +601,43 @@ export default class Sakwa extends View {
      const labels=(this.width||0)>=460;
      const frame=v_flex().id('sakwa-root').size_full().min_h(0).min_w(0)
        .on_size_change((size,cx)=>{if(this.width!==size.width){this.width=size.width;cx.notify();}})
@@ -401,7 +615,7 @@ index 775bf93..a3f8919 100644
 +        .child(h_flex().gap(12).items_center()
 +          .child(this.headerIcon('note-send','send',candidates.length?'Send to agent':'No live agents in this note context',
 +            (_e,cx)=>this.sendClick(cx),!ready||this.busy||!candidates.length||!this.editor.value().trim()))
-+          .child(this.headerIcon('note-all','archive','All notes',(_e,cx)=>{this.panel='all';cx.notify();}))
++          .child(this.headerIcon('note-all','archive','All notes',(_e,cx)=>this.openAll(cx)))
 +          .child(this.headerIcon('note-mode',this.mode==='list'?'file-text':'list-checks',this.mode==='list'?'Edit as text':'Show as list',
 +            (_e,cx)=>this.setMode(this.mode==='list'?'text':'list',cx))))))
 +      .when(this.framed&&!this.bare,e=>e.child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
@@ -426,7 +640,7 @@ index 775bf93..a3f8919 100644
 -        .child(popover('send','Send to agent',this.panel==='recipients',(open,cx)=>{
 -          if(open)this.sendClick(cx);else if(this.panel==='recipients'){this.panel=null;cx.notify();}
 +          this.current?`${this.pinned?'Pinned · ':''}${this.current.label}`:null,this.scopeLabels())))
-+        .when(!this.bare,e=>e.child(button('all-notes','All notes',(_e,cx)=>{this.panel='all';cx.notify();},{icon:'archive',iconOnly:!labels})))
++        .when(!this.bare,e=>e.child(button('all-notes','All notes',(_e,cx)=>this.openAll(cx),{icon:'archive',iconOnly:!labels})))
 +        .when(!this.bare,e=>e.child(popover('send','Send to agent',this.panel==='recipients',(open,cx)=>{
 +          if(open)this.sendClick(cx);else if(this.panel==='recipients'){this.panel=null;this.sendText=null;cx.notify();}
          },()=>v_flex().gap(4).when(!candidates.length,e=>e.child(text('No live agents in this note context.',true)))
