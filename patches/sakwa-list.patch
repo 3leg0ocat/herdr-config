@@ -134,7 +134,7 @@ index 2bbd1de..5dbd30c 100644
      },
      async append(context,text,parents) { return journal.put(journal.revision(context,text,parents)); },
 diff --git a/mods/sakwa/main.js b/mods/sakwa/main.js
-index 775bf93..aa9bb22 100644
+index 775bf93..de95dae 100644
 --- a/mods/sakwa/main.js
 +++ b/mods/sakwa/main.js
 @@ -1,5 +1,5 @@
@@ -211,7 +211,7 @@ index 775bf93..aa9bb22 100644
      });
      try { this.book=createDraftBook(this.journal,localStorage,records=>this.recovery.save(records)); }
      catch(e) { this.fatal=e.message;this.notice(e.message,'error',true); }
-@@ -48,12 +82,224 @@ export default class Sakwa extends View {
+@@ -48,12 +82,227 @@ export default class Sakwa extends View {
          const command=await nextCommand(),name=typeof command==='string'?command:command.name;
          if(name==='focus')this.focusEditor();
          if(['tab','space','global'].includes(name))this.selectScope(name,cx);
@@ -275,8 +275,11 @@ index 775bf93..aa9bb22 100644
 +    const v=this.itemInput.value().trim();
 +    if(v){
 +      const value=this.editor.value();this.ensureIds(value);
-+      const base=value.replace(/\s+$/,''),next=`${base?base+'\n':''}- [ ] ${v}`;
-+      const ids=[...(base?this.lineIds.slice(0,base.split('\n').length):[]),this.nextLineId++];
++      // Local: a new item goes above the first checked one, so checked items stay at the bottom.
++      const base=value.replace(/\s+$/,''),lines=base?base.split('\n'):[],ids=this.lineIds.slice(0,lines.length);
++      const first=lines.findIndex(l=>{const c=l.match(CHECK);return Boolean(c&&c[1]!==' ');}),at=first<0?lines.length:first;
++      lines.splice(at,0,`- [ ] ${v}`);ids.splice(at,0,this.nextLineId++);
++      const next=lines.join('\n');
 +      this.commit(next,cx);
 +      if(this.editor.value()===next){this.lineIds=ids;this.idsText=next;}
 +    }
@@ -437,7 +440,7 @@ index 775bf93..aa9bb22 100644
    desired() { return this.pinned || contextFor(this.scope,focused(),spaces()); }
    note(key) { return this.journal.notes().find(n=>n.key===key); }
    setText(value) {
-@@ -71,6 +317,7 @@ export default class Sakwa extends View {
+@@ -71,6 +320,7 @@ export default class Sakwa extends View {
      const next=this.desired();
      if(!next){this.current=null;this.setText('');return;}
      const key=contextKey(next),changed=!this.current || contextKey(this.current)!==key;
@@ -445,7 +448,7 @@ index 775bf93..aa9bb22 100644
      const note=this.note(key),draft=this.book?.get(key);
      const ids=draft?[draft.id]:(note?.heads.map(h=>h.id)||[]);
      const signature=JSON.stringify(ids.slice().sort());
-@@ -178,6 +425,47 @@ export default class Sakwa extends View {
+@@ -178,6 +428,47 @@ export default class Sakwa extends View {
    chooseNote(note,cx) {
      this.pinned=note.context;this.panel=null;this.message=null;this.sync();cx.notify();
    }
@@ -493,7 +496,7 @@ index 775bf93..aa9bb22 100644
    allNotes() {
      const byKey=new Map(this.journal.notes().map(n=>[n.key,n]));
      for(const draft of this.book?.pending()||[])byKey.set(draft.key,{...draft,heads:[]});
-@@ -190,7 +478,7 @@ export default class Sakwa extends View {
+@@ -190,7 +481,7 @@ export default class Sakwa extends View {
    }
    send(address,cx) {
      if(this.busy || !this.current)return;
@@ -502,7 +505,7 @@ index 775bf93..aa9bb22 100644
      this.busy=true;this.panel=null;this.message=null;
      this.work(cx,async()=>{
        try {
-@@ -203,6 +491,7 @@ export default class Sakwa extends View {
+@@ -203,6 +494,7 @@ export default class Sakwa extends View {
      });
    }
    sendClick(cx) {
@@ -510,7 +513,7 @@ index 775bf93..aa9bb22 100644
      const candidates=recipients(this.current,agents(),terminals());
      if(candidates.length===1)this.send(candidates[0].address,cx);
      else {this.panel='recipients';cx.notify();}
-@@ -218,16 +507,79 @@ export default class Sakwa extends View {
+@@ -218,16 +510,79 @@ export default class Sakwa extends View {
    archive(cx) {
      const t=theme(),q=this.query.value().toLowerCase();
      const notes=this.allNotes().filter(n=>`${n.context.label}\n${n.text}`.toLowerCase().includes(q));
@@ -600,7 +603,7 @@ index 775bf93..aa9bb22 100644
    }
    render(cx) {
      // Schedule retained input changes outside render, as required by GPUI.
-@@ -249,28 +601,43 @@ export default class Sakwa extends View {
+@@ -249,28 +604,43 @@ export default class Sakwa extends View {
      const labels=(this.width||0)>=460;
      const frame=v_flex().id('sakwa-root').size_full().min_h(0).min_w(0)
        .on_size_change((size,cx)=>{if(this.width!==size.width){this.width=size.width;cx.notify();}})
